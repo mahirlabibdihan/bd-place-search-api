@@ -446,6 +446,23 @@ For production, run Photon, the API, and the worker as separate systemd services
 
 ## 2.5 Test the API
 
+### Photon-compatible API
+
+Existing Photon clients can switch their base URL to this service and keep the
+same forward-search request format. The response is a GeoJSON `FeatureCollection`:
+
+```text
+GET http://127.0.0.1:5001/api/?q=Dhaka
+GET http://127.0.0.1:5001/api/?q=Dhaka&limit=3
+GET http://127.0.0.1:5001/api/?q=Dhaka&lang=en
+GET http://127.0.0.1:5001/api/?q=Dhaka&lat=23.8103&lon=90.4125
+```
+
+Supported compatibility parameters are `q`, `limit`, `lang`, `lat`, and `lon`.
+Results remain restricted to Bangladesh and `limit` is capped by
+`PHOTON_RESULT_LIMIT`. This compatibility endpoint covers forward search;
+`/reverse` is not currently exposed.
+
 English and Bangla search:
 
 ```bash

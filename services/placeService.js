@@ -12,12 +12,14 @@ const clientError = (message) => {
 };
 
 class PlaceService {
-  suggest = async ({ q, lang = "bn", limit }) => {
+  searchGeoJson = async ({ q, lang, limit, lat, lon }) => {
     const query = typeof q === "string" ? q.trim() : "";
     if (query.length < PLACE_SEARCH_MIN_CHARS) {
       throw clientError(`q must contain at least ${PLACE_SEARCH_MIN_CHARS} characters`);
     }
-    if (!/^[a-z]{2}$/i.test(lang)) throw clientError("lang must be a two-letter language code");
+    if (lang !== undefined && !/^[a-z]{2}$/i.test(lang)) {
+      throw clientError("lang must be a two-letter language code");
+    }
 
     const requestedLimit = limit === undefined ? PHOTON_RESULT_LIMIT : Number(limit);
     if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
@@ -26,9 +28,25 @@ class PlaceService {
 
     const url = new URL("/api", PHOTON_BASE_URL);
     url.searchParams.set("q", query);
-    url.searchParams.set("lang", lang.toLowerCase());
+    if (lang) url.searchParams.set("lang", lang.toLowerCase());
     url.searchParams.set("limit", String(Math.min(requestedLimit, PHOTON_RESULT_LIMIT)));
     url.searchParams.set("bbox", "88.0,20.5,92.8,26.7");
+
+    if ((lat === undefined) !== (lon === undefined)) {
+      throw clientError("lat and lon must be provided together");
+    }
+    if (lat !== undefined) {
+      const latitude = Number(lat);
+      const longitude = Number(lon);
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+        throw clientError("lat must be a number between -90 and 90");
+      }
+      if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+        throw clientError("lon must be a number between -180 and 180");
+      }
+      url.searchParams.set("lat", String(latitude));
+      url.searchParams.set("lon", String(longitude));
+    }
 
     let response;
     try {
@@ -51,8 +69,17 @@ class PlaceService {
     }
 
     const body = await response.json();
-    return (body.features || [])
-      .filter((feature) => feature.properties?.countrycode?.toLowerCase() === "bd")
+    return {
+      type: "FeatureCollection",
+      features: (body.features || []).filter(
+        (feature) => feature.properties?.countrycode?.toLowerCase() === "bd"
+      ),
+    };
+  };
+
+  suggest = async ({ q, lang = "bn", limit }) => {
+    const body = await this.searchGeoJson({ q, lang, limit });
+    return body.features
       .map((feature) => ({
         osmType: feature.properties.osm_type,
         osmId: feature.properties.osm_id,

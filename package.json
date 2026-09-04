@@ -1,0 +1,28 @@
+{
+  "name": "bangladesh-place-search-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bangladesh place autocomplete API backed by Photon",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "worker": "node workers/searchIndexUpdateWorker.js",
+    "test": "jest --runInBand"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "bullmq": "^5.58.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "ioredis": "^5.7.0"
+  },
+  "devDependencies": {
+    "jest": "^30.1.3",
+    "supertest": "^7.1.4"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "roots": ["<rootDir>/tests"]
+  }
+}

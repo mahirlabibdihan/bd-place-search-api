@@ -21,6 +21,77 @@ Geofabrik .osm.pbf -> Nominatim PostgreSQL -> Photon/OpenSearch index
 These commands target Ubuntu 24.04, Nominatim 5.3.2, Photon 1.2.1, Java 21,
 and Bangladesh data. Nominatim and Photon should remain bound to localhost.
 
+## Automated setup
+
+For a new installation, configure everything in the repository's ignored `.env`
+and run one setup script:
+
+```bash
+cp .env.example .env
+nano .env
+sudo bash scripts/setup-all.sh
+bash scripts/run-stack.sh
+```
+
+At minimum, replace these values in `.env`:
+
+```dotenv
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DB=nominatim
+DB_ADMIN_USER=postgres
+DB_ADMIN_PASS=
+NOMINATIM_DB_USER=nominatim
+NOMINATIM_DB_PASS=replace-with-a-strong-password
+PHOTON_DB_USER=photon_import
+PHOTON_DB_PASS=replace-with-a-strong-password
+```
+
+For local PostgreSQL peer authentication, leave `DB_ADMIN_PASS` empty. For a
+remote database, set `DB_HOST`, `DB_ADMIN_USER`, and `DB_ADMIN_PASS`. Quote values
+containing shell-special characters because the setup script sources `.env`.
+`setup-all.sh` installs the search engine, system Node.js 22, Redis, and npm
+dependencies. `run-stack.sh` starts Photon, the Express API, and the update worker
+together and stops the remaining processes if one exits. The installer creates
+the database roles and password files. Interrupted setup is resumable: a valid
+Nominatim database is reused, while a stale Photon build is archived with a UTC
+timestamp before a fresh index is created. Before building Photon, setup applies
+all currently published Geofabrik diffs so a new installation starts current.
+
+When testing in a second WSL distribution while the original one is running,
+PostgreSQL may select another port because WSL distributions share localhost.
+The installer detects this and reports the correct port. Use a separate config:
+
+```bash
+cp .env .env.test
+sed -i 's/^DB_PORT=.*/DB_PORT=5433/' .env.test  # use the port reported by the script
+sudo bash scripts/setup-all.sh .env.test
+bash scripts/run-stack.sh .env.test
+```
+
+The individual scripts remain available when only one part is needed:
+
+```bash
+sudo bash scripts/setup-search-engine.sh  # Nominatim and Photon
+sudo bash scripts/setup-backend.sh        # Node.js, Redis and npm packages
+bash scripts/run-photon.sh                # Photon only
+bash scripts/run-stack.sh                 # Photon, API and worker
+```
+
+To completely reset only this stack and test installation again:
+
+```bash
+sudo bash scripts/reset-all.sh
+sudo bash scripts/setup-all.sh
+bash scripts/run-stack.sh
+```
+
+The reset script displays the active WSL distribution and exact deletion scope,
+then requires typing its confirmation phrase. It preserves the Windows repository,
+`.env`, and `node_modules`. Use `--yes` only in disposable automated test distros.
+
+The remaining section documents the equivalent manual steps and troubleshooting.
+
 ## 1.1 Install system dependencies
 
 ```bash
@@ -319,8 +390,22 @@ Enter this line, replacing `PASSWORD`:
 127.0.0.1:5432:nominatim:place_search_status:PASSWORD
 ```
 
-The `.env.example` defaults assume this DSN and password-file path. In production,
-make the password file readable only by the API service account.
+Configure the API and worker with the same database connection:
+
+```dotenv
+DB_USER=place_search_status
+DB_HOST=127.0.0.1
+DB_PASS=
+DB_DB=nominatim
+DB_PORT=5432
+DB_SSL=false
+DB_PGPASSFILE=/srv/place-search/.pgpass
+```
+
+Leave `DB_PASS` empty to load the password from `DB_PGPASSFILE`. For a remote
+database, change `DB_HOST`, set `DB_SSL=true`, and use the remote hostname in
+`.pgpass`. These settings configure the Node API and worker; Nominatim itself
+continues to use `/srv/nominatim/project/.env`.
 
 ## 2.4 Run the API and worker
 
@@ -345,7 +430,8 @@ and does not call Photon. The POST endpoint also returns `status: no_changes`
 without queuing when the availability check is false. When an update exists, the
 worker uses `replication --catch-up`, which checks immediately and applies all
 available diffs without `--once` sleeping until the daily publication window.
-`NOMINATIM_DATABASE` and `PSQL_BIN` configure the sequence check.
+`DB_USER`, `DB_HOST`, `DB_PASS`, `DB_DB`, `DB_PORT`, `DB_SSL`, and
+`DB_PGPASSFILE` configure database access for both the API and worker.
 
 Always run manual Nominatim replication from its project directory:
 
@@ -381,13 +467,32 @@ curl -sS \
 The response includes `updateAvailable`, `localImportDate`,
 `remoteDataTimestamp`, `remoteRegionalSequence`, and `checkedAt`. This check does not require Redis.
 
-Queue and inspect an update:
+Update only when Geofabrik has newer data:
 
 ```bash
 curl -sS -X POST 'http://127.0.0.1:5000/api/v1/admin/search-index-updates' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" \
   -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
+```
 
+This endpoint checks availability first. It returns `status: no_changes` without
+creating a job when the local import is current.
+
+Force an update attempt without the availability check:
+
+```bash
+curl -sS -X POST \
+  'http://127.0.0.1:5000/api/v1/admin/search-index-updates/force' \
+  -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" \
+  -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
+```
+
+The force endpoint always queues the worker. The worker runs Nominatim catch-up,
+but still avoids calling Photon when Nominatim's sequence does not advance.
+
+Inspect a queued job:
+
+```bash
 curl -sS \
   'http://127.0.0.1:5000/api/v1/admin/search-index-updates/JOB_ID' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq

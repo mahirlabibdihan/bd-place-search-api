@@ -1,23 +1,26 @@
 const { Pool } = require("pg");
 const {
+  DB_DB,
+  DB_HOST,
+  DB_PORT,
+  DB_SSL,
+  DB_USER,
   GEOFABRIK_REPLICATION_STATE_URL,
-  NOMINATIM_STATUS_DSN,
-  NOMINATIM_STATUS_PGPASSFILE,
   PHOTON_REQUEST_TIMEOUT_MS,
 } = require("../config/config");
-const { readPassword } = require("../utils/pgpass");
+const { databasePassword } = require("../utils/databaseConfig");
 
-const databaseUrl = new URL(NOMINATIM_STATUS_DSN);
 const connection = {
-  host: databaseUrl.hostname,
-  port: databaseUrl.port || "5432",
-  database: decodeURIComponent(databaseUrl.pathname.slice(1)),
-  user: decodeURIComponent(databaseUrl.username),
+  host: DB_HOST,
+  port: DB_PORT,
+  database: DB_DB,
+  user: DB_USER,
 };
 
 const pool = new Pool({
   ...connection,
-  password: () => readPassword(NOMINATIM_STATUS_PGPASSFILE, connection),
+  password: databasePassword,
+  ssl: DB_SSL ? { rejectUnauthorized: true } : false,
   connectionTimeoutMillis: PHOTON_REQUEST_TIMEOUT_MS,
   idleTimeoutMillis: 10000,
   max: 2,

@@ -1,36 +1,38 @@
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { Worker } = require("bullmq");
+const { Pool } = require("pg");
 const { connection } = require("../config/redis");
 const {
   NOMINATIM_BIN,
-  NOMINATIM_DATABASE,
   NOMINATIM_PROJECT_DIR,
   PHOTON_UPDATE_URL,
   PHOTON_UPDATE_STATUS_URL,
   PHOTON_REQUEST_TIMEOUT_MS,
-  PSQL_BIN,
   SEARCH_INDEX_UPDATE_TIMEOUT_SECONDS,
 } = require("../config/config");
 const { QUEUE_NAME } = require("../queues/searchIndexUpdateQueue");
+const { connection: databaseConnection, databasePassword } = require("../utils/databaseConfig");
 const { hasNewSequence, parseSequence } = require("../utils/nominatimSequence");
 const { parsePhotonStatus } = require("../utils/photonStatus");
 
 const execFileAsync = promisify(execFile);
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const databasePool = new Pool({
+  ...databaseConnection,
+  password: databasePassword,
+  connectionTimeoutMillis: PHOTON_REQUEST_TIMEOUT_MS,
+  idleTimeoutMillis: 10000,
+  max: 2,
+});
+
+databasePool.on("error", (error) => {
+  console.error("Unexpected Nominatim worker database error", error);
+});
 
 const getNominatimSequence = async () => {
-  const { stdout } = await execFileAsync(PSQL_BIN, [
-    "-X",
-    "-d",
-    NOMINATIM_DATABASE,
-    "-Atc",
-    "SELECT sequence_id FROM import_status LIMIT 1",
-  ], {
-    cwd: NOMINATIM_PROJECT_DIR,
-    timeout: PHOTON_REQUEST_TIMEOUT_MS,
-  });
-  return parseSequence(stdout);
+  const result = await databasePool.query("SELECT sequence_id FROM import_status LIMIT 1");
+  return parseSequence(result.rows[0]?.sequence_id);
 };
 
 const runNominatimUpdate = async () => {
@@ -97,7 +99,7 @@ const worker = new Worker(QUEUE_NAME, async (job) => {
   await waitForPhotonUpdate();
   await job.updateProgress({ state: "verifying" });
   await smokeTest("Dhaka", "en");
-  await smokeTest("ঢাকা", "bn");
+  await smokeTest("\u09a2\u09be\u0995\u09be", "bn");
   const result = { outcome: "updated", sequence: String(sequenceAfter) };
   await job.updateProgress({ state: "succeeded", ...result });
   return result;

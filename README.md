@@ -90,6 +90,41 @@ sudo -u nominatim /srv/nominatim/venv/bin/nominatim replication --init
 `--reverse-only` is appropriate because Nominatim feeds Photon rather than serving
 forward search itself. Do not use `--no-updates`.
 
+Nominatim persists the replication source selected by `replication --init`.
+Changing `NOMINATIM_REPLICATION_URL` later does not switch an initialized database
+until initialization is run again. Verify the project setting:
+
+```bash
+sudo -u nominatim sed -n '/^NOMINATIM_REPLICATION_/p' \
+  /srv/nominatim/project/.env
+```
+
+For this Bangladesh installation, the URL must be:
+
+```dotenv
+NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/asia/bangladesh-updates
+```
+
+After changing the URL, stop the update worker, wait until no replication command
+is running, and reinitialize from the Nominatim project directory:
+
+```bash
+pgrep -af '[n]ominatim replication'
+pgrep -af '[s]earchIndexUpdateWorker'
+
+sudo -u nominatim bash -c '
+  cd /srv/nominatim/project &&
+  /srv/nominatim/venv/bin/nominatim replication --init
+'
+
+sudo -u postgres psql -d nominatim -c \
+  'SELECT sequence_id, lastimportdate FROM import_status'
+```
+
+With Geofabrik Bangladesh updates, `sequence_id` must be in the same regional
+namespace as `bangladesh-updates/state.txt` (for example, around `4867`), not the
+global OSM minutely namespace (for example, around `7271751`).
+
 ## 1.4 Install Photon and grant database access
 
 ```bash
@@ -163,8 +198,24 @@ The resolved path must be
 real directory rather than a symlink, stop and inspect it; do not delete or
 overwrite an unknown index.
 
-Initialize Photon's Nominatim update tracking once. Run it as the `nominatim`
-operating-system user so PostgreSQL peer authentication works:
+Photon update initialization needs a database owner connection over TCP. Set a
+password for `nominatim` and store it in that operating-system user's password
+file without putting the secret in a command:
+
+```bash
+sudo -u postgres psql -c '\password nominatim'
+sudo install -m 0600 -o nominatim -g nominatim /dev/null \
+  /srv/nominatim/.pgpass
+sudo -u nominatim nano /srv/nominatim/.pgpass
+```
+
+Enter this line, replacing `PASSWORD`:
+
+```text
+127.0.0.1:5432:nominatim:nominatim:PASSWORD
+```
+
+Then initialize Photon's Nominatim update tracking once:
 
 ```bash
 sudo -u nominatim java \
@@ -242,8 +293,10 @@ Put the generated value in `SEARCH_INDEX_ADMIN_TOKEN`. Never commit `.env`.
 
 ## 2.3 Configure the availability check
 
-The availability endpoint compares Nominatim's local replication sequence with
-Geofabrik's current sequence. Create a narrowly scoped PostgreSQL login:
+The availability endpoint compares Nominatim's local `lastimportdate` with
+Geofabrik's current data timestamp. It deliberately uses timestamps because a
+misconfigured Nominatim database may use the global OSM sequence namespace while
+Geofabrik's `sequenceNumber` is regional. Create a narrowly scoped PostgreSQL login:
 
 ```bash
 sudo -u postgres createuser --pwprompt place_search_status
@@ -288,15 +341,18 @@ sudo -u nominatim /usr/bin/node \
 
 The worker reads `import_status.sequence_id` before and after Nominatim
 replication. When it is unchanged, the job completes with `outcome: no_changes`
-and does not call Photon. `NOMINATIM_DATABASE` and `PSQL_BIN` configure this
-read-only check.
+and does not call Photon. The POST endpoint also returns `status: no_changes`
+without queuing when the availability check is false. When an update exists, the
+worker uses `replication --catch-up`, which checks immediately and applies all
+available diffs without `--once` sleeping until the daily publication window.
+`NOMINATIM_DATABASE` and `PSQL_BIN` configure the sequence check.
 
 Always run manual Nominatim replication from its project directory:
 
 ```bash
 sudo -u nominatim bash -c '
   cd /srv/nominatim/project &&
-  /srv/nominatim/venv/bin/nominatim replication --once
+  /srv/nominatim/venv/bin/nominatim replication --catch-up
 '
 ```
 
@@ -314,7 +370,7 @@ curl --get 'http://127.0.0.1:5000/api/v1/places/search' \
   --data-urlencode 'q=ঢাকা' --data 'lang=bn' --data 'limit=5' | jq
 ```
 
-Check whether Geofabrik has a newer replication sequence:
+Check whether Geofabrik has newer data:
 
 ```bash
 curl -sS \
@@ -322,8 +378,9 @@ curl -sS \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq
 ```
 
-The response includes `updateAvailable`, `localSequence`, `remoteSequence`, and
-`checkedAt`. This check does not require Redis.
+The response includes `updateAvailable`, `localImportDate`,
+`remoteDataTimestamp`, `remoteRegionalSequence`, and `checkedAt`. This check does not require Redis.
+
 Queue and inspect an update:
 
 ```bash
@@ -348,7 +405,43 @@ When Photon is down, search returns HTTP 503:
 ```json
 { "error": "Place search is temporarily unavailable" }
 ```
-## 2.6 Updates, recovery, and production checks
+
+## 2.6 Replication troubleshooting
+
+Use the API availability endpoint before requesting an update. Do not invoke
+`replication --once` for an on-demand check against Geofabrik: it respects
+`NOMINATIM_REPLICATION_UPDATE_INTERVAL=86400` and may print:
+
+```text
+Sleeping for ... sec before next update.
+```
+
+Do not override the interval with `0`. Nominatim rejects that for Geofabrik with:
+
+```text
+Update interval too low for download.geofabrik.de.
+FATAL: Invalid replication update interval setting.
+```
+
+The backend avoids both cases: POST checks the upstream timestamp before queuing,
+and the worker uses `replication --catch-up` only when newer data exists.
+
+If `sequenceBefore` is around `727xxxx`, Nominatim is using the global OSM
+minutely namespace. For this setup it should be near Geofabrik's Bangladesh
+regional sequence, such as `4867`. Verify `.env`, stop all update processes, and
+rerun `replication --init` as described in section 1.3.
+
+A BullMQ job with `status: waiting` is only queued. Confirm Redis and the worker:
+
+```bash
+redis-cli ping
+pgrep -af '[s]earchIndexUpdateWorker'
+```
+
+Generating a fresh `Idempotency-Key` intentionally creates a different job.
+Reuse the same key when retrying the same request.
+
+## 2.7 Updates, recovery, and production checks
 
 The fixed `bangladesh-latest.osm.pbf` URL is for initial installation, disaster
 recovery, or an occasional clean rebuild. Do not download and re-import the full

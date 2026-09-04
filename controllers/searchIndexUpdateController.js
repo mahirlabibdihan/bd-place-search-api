@@ -11,8 +11,12 @@ exports.availability = async (_req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
+    const availability = await updateAvailabilityService.check();
+    if (!availability.updateAvailable) {
+      return res.status(200).json({ status: "no_changes", ...availability });
+    }
     const job = await searchIndexUpdateService.enqueue(req.get("Idempotency-Key"));
-    res.status(202).json(job);
+    return res.status(202).json(job);
   } catch (error) {
     next(error);
   }

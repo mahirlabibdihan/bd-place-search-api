@@ -10,19 +10,25 @@
     "worker": "node workers/searchIndexUpdateWorker.js",
     "test": "jest --runInBand"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "bullmq": "^5.58.5",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
-    "ioredis": "^5.7.0"
+    "ioredis": "^5.7.0",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
+    "autocannon": "^8.0.0",
     "jest": "^30.1.3",
     "supertest": "^7.1.4"
   },
   "jest": {
     "testEnvironment": "node",
-    "roots": ["<rootDir>/tests"]
+    "roots": [
+      "<rootDir>/tests"
+    ]
   }
 }

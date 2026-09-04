@@ -1,39 +1,59 @@
-const { execFile } = require("node:child_process");
-const { promisify } = require("node:util");
+const { Pool } = require("pg");
 const {
   GEOFABRIK_REPLICATION_STATE_URL,
-  NOMINATIM_PROJECT_DIR,
   NOMINATIM_STATUS_DSN,
   NOMINATIM_STATUS_PGPASSFILE,
   PHOTON_REQUEST_TIMEOUT_MS,
-  PSQL_BIN,
 } = require("../config/config");
-const { parseSequence } = require("../utils/nominatimSequence");
+const { readPassword } = require("../utils/pgpass");
 
-const execFileAsync = promisify(execFile);
+const databaseUrl = new URL(NOMINATIM_STATUS_DSN);
+const connection = {
+  host: databaseUrl.hostname,
+  port: databaseUrl.port || "5432",
+  database: decodeURIComponent(databaseUrl.pathname.slice(1)),
+  user: decodeURIComponent(databaseUrl.username),
+};
+
+const pool = new Pool({
+  ...connection,
+  password: () => readPassword(NOMINATIM_STATUS_PGPASSFILE, connection),
+  connectionTimeoutMillis: PHOTON_REQUEST_TIMEOUT_MS,
+  idleTimeoutMillis: 10000,
+  max: 2,
+});
+
+pool.on("error", (error) => {
+  console.error("Unexpected Nominatim status database error", error);
+});
+
+const parseTimestamp = (value, source) => {
+  const date = new Date(String(value).trim().replaceAll("\\:", ":"));
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid ${source} timestamp`);
+  return date;
+};
 
 const parseGeofabrikState = (text) => {
-  const match = String(text).match(/^sequenceNumber=(\d+)\s*$/m);
-  if (!match) throw new Error("Geofabrik state does not contain a sequence number");
-  return parseSequence(match[1]);
+  const timestamp = String(text).match(/^timestamp=(.+)\s*$/m)?.[1];
+  const regionalSequence = String(text).match(/^sequenceNumber=(\d+)\s*$/m)?.[1];
+  if (!timestamp || !regionalSequence) {
+    throw new Error("Geofabrik state is missing timestamp or sequence number");
+  }
+  return {
+    timestamp: parseTimestamp(timestamp, "Geofabrik"),
+    regionalSequence,
+  };
 };
 
-const getLocalSequence = async () => {
-  const { stdout } = await execFileAsync(PSQL_BIN, [
-    "-X",
-    "-d",
-    NOMINATIM_STATUS_DSN,
-    "-Atc",
-    "SELECT sequence_id FROM import_status LIMIT 1",
-  ], {
-    cwd: NOMINATIM_PROJECT_DIR,
-    env: { ...process.env, PGPASSFILE: NOMINATIM_STATUS_PGPASSFILE },
-    timeout: PHOTON_REQUEST_TIMEOUT_MS,
-  });
-  return parseSequence(stdout);
+const getLocalImportDate = async () => {
+  const result = await pool.query("SELECT lastimportdate FROM import_status LIMIT 1");
+  if (!result.rows[0]?.lastimportdate) {
+    throw new Error("Nominatim import status is missing lastimportdate");
+  }
+  return parseTimestamp(result.rows[0].lastimportdate, "Nominatim import");
 };
 
-const getRemoteSequence = async () => {
+const getRemoteState = async () => {
   const response = await fetch(GEOFABRIK_REPLICATION_STATE_URL, {
     headers: { accept: "text/plain" },
     signal: AbortSignal.timeout(PHOTON_REQUEST_TIMEOUT_MS),
@@ -44,14 +64,15 @@ const getRemoteSequence = async () => {
 
 exports.check = async () => {
   try {
-    const [localSequence, remoteSequence] = await Promise.all([
-      getLocalSequence(),
-      getRemoteSequence(),
+    const [localImportDate, remoteState] = await Promise.all([
+      getLocalImportDate(),
+      getRemoteState(),
     ]);
     return {
-      updateAvailable: remoteSequence > localSequence,
-      localSequence: String(localSequence),
-      remoteSequence: String(remoteSequence),
+      updateAvailable: remoteState.timestamp > localImportDate,
+      localImportDate: localImportDate.toISOString(),
+      remoteDataTimestamp: remoteState.timestamp.toISOString(),
+      remoteRegionalSequence: remoteState.regionalSequence,
       checkedAt: new Date().toISOString(),
     };
   } catch (cause) {

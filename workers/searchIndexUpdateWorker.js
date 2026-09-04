@@ -34,7 +34,7 @@ const getNominatimSequence = async () => {
 };
 
 const runNominatimUpdate = async () => {
-  await execFileAsync(NOMINATIM_BIN, ["replication", "--once"], {
+  await execFileAsync(NOMINATIM_BIN, ["replication", "--catch-up"], {
     cwd: NOMINATIM_PROJECT_DIR,
     timeout: SEARCH_INDEX_UPDATE_TIMEOUT_SECONDS * 1000,
     maxBuffer: 10 * 1024 * 1024,

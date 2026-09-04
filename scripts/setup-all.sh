@@ -8,4 +8,4 @@ ENV_FILE="${1:-${REPO_DIR}/.env}"
 bash "$REPO_DIR/scripts/setup-backend.sh"
 bash "$REPO_DIR/scripts/setup-search-engine.sh" "$ENV_FILE"
 
-echo "Everything is installed. Run: bash scripts/run-stack.sh"
+echo "Everything is installed. Run: sudo bash scripts/run-stack.sh"

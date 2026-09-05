@@ -79,6 +79,64 @@ docker compose down
 Named volumes preserve the Nominatim database and Photon index. Running
 `docker compose down -v` permanently removes that imported data.
 
+### Render (free tier)
+
+The Render image is self-contained and does not need a persistent disk. Its
+PostgreSQL database, Nominatim state, and Photon index are built from Geofabrik
+data during `docker build`.
+
+1. Create a Docker web service from this repository.
+2. Set the Dockerfile path to `Dockerfile.render`.
+3. Add `SEARCH_INDEX_ADMIN_TOKEN` as a secret environment variable.
+4. Set the health-check path to `/api/health` and deploy. Render supplies `PORT` automatically.
+
+The first image build is large and slow. After every Render start, a one-shot task
+waits for the stack to become healthy and calls the conditional update API. It applies
+newer Geofabrik diffs when available and otherwise does nothing. Set
+`SEARCH_INDEX_UPDATE_ON_START=false` to disable it.
+
+Runtime updates are temporary: a restart or redeploy begins with the data snapshot
+baked into the image and then catches up again. Rebuild and redeploy the image
+periodically to reduce startup catch-up time.
+
+To reuse an already initialized local Compose installation instead of importing
+everything again:
+
+```bash
+bash scripts/build-render-from-volumes.sh
+```
+
+The first run briefly stops the local stack, saves its three volume archives in
+`volumes`, builds `bangladesh-place-search:render`, and restarts the stack.
+Later runs reuse those archives, so backend-only changes do not rebuild the data
+layers. To capture the current volumes again, use:
+
+```bash
+bash scripts/build-render-from-volumes.sh --latest
+```
+
+You may pass an image tag after the option, for example:
+
+```bash
+bash scripts/build-render-from-volumes.sh --latest \
+  YOUR_DOCKERHUB_USERNAME/bangladesh-place-search:latest
+```
+
+Docker cannot detect that Geofabrik's remote PBF changed. Force a fresh data
+snapshot by rebuilding without cache:
+
+```bash
+docker build --no-cache \
+  -f Dockerfile.render \
+  -t YOUR_DOCKERHUB_USERNAME/bangladesh-place-search:latest .
+
+docker push YOUR_DOCKERHUB_USERNAME/bangladesh-place-search:latest
+```
+
+On Render, use **Clear build cache & deploy** when Render builds directly from the
+repository. If Render pulls a Docker Hub image, rebuild and push the image first,
+then trigger a new deployment.
+
 ## Configure `.env`
 
 `.env` is ignored by Git and is sourced by Bash scripts, so use `KEY=value`

@@ -124,6 +124,9 @@ chown nominatim:nominatim "$NOMINATIM_HOME/project/.env"
 chmod 0600 "$NOMINATIM_HOME/project/.env"
 
 echo "[4/6] Importing Bangladesh into Nominatim"
+PBF="$NOMINATIM_HOME/data/bangladesh-latest.osm.pbf"
+PBF_DIR=$(dirname "$PBF")
+PBF_NAME=$(basename "$PBF")
 DATABASE_READY=false
 if admin_psql -Atc "SELECT 1 FROM pg_database WHERE datname='${DB_DB}'" | grep -qx 1; then
   if admin_psql -d "$DB_DB" -Atc "SELECT to_regclass('public.import_status')" | grep -qx import_status; then
@@ -136,9 +139,6 @@ if admin_psql -Atc "SELECT 1 FROM pg_database WHERE datname='${DB_DB}'" | grep -
 fi
 
 if [[ "$DATABASE_READY" == false ]]; then
-  PBF="$NOMINATIM_HOME/data/bangladesh-latest.osm.pbf"
-  PBF_DIR=$(dirname "$PBF")
-  PBF_NAME=$(basename "$PBF")
   sudo -u nominatim wget -c -O "$PBF" "$OSM_PBF_URL"
   sudo -u nominatim wget --no-cache -O "$PBF.md5" "$OSM_PBF_URL.md5"
 
@@ -168,10 +168,13 @@ write_pgpass "$DB_PGPASSFILE" "$STATUS_OWNER" "$DB_USER" "$DB_PASS"
 echo "[5/6] Building Photon index"
 JAR="$PHOTON_HOME/releases/photon-$PHOTON_VERSION.jar"
 [[ -f "$JAR" ]] || sudo -u photon wget -O "$JAR" "https://github.com/komoot/photon/releases/download/$PHOTON_VERSION/photon-$PHOTON_VERSION.jar"
+chmod 0755 "$PHOTON_HOME" "$PHOTON_HOME/releases"
+chmod 0644 "$JAR"
 admin_psql -d "$DB_DB" -c 'CREATE INDEX IF NOT EXISTS placex_country_code_idx ON placex(country_code)'
 admin_psql -d "$DB_DB" -c "GRANT USAGE ON SCHEMA public TO \"$PHOTON_DB_USER\""
 admin_psql -d "$DB_DB" -c "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"$PHOTON_DB_USER\""
 BUILD="$PHOTON_HOME/builds/bd-initial"
+STALE_BUILD=""
 if [[ -e "$BUILD/photon_data" ]]; then
   if pgrep -u photon -f 'photon-.*\.jar' >/dev/null 2>&1; then
     echo "Photon is running; stop it before rebuilding the index." >&2
@@ -190,4 +193,10 @@ sudo -u photon ln -sfnT "$BUILD/photon_data" "$PHOTON_HOME/current/photon_data"
 echo "[6/6] Initializing live updates"
 sudo -u nominatim java -jar "$JAR" update-init -host "$DB_HOST" -port "$DB_PORT" \
   -database "$DB_DB" -user "$NOMINATIM_DB_USER" -import-user "$PHOTON_DB_USER"
+rm -f -- "$PBF" "$PBF.md5"
+if [[ -n "$STALE_BUILD" && -d "$STALE_BUILD" ]]; then
+  rm -rf -- "$STALE_BUILD"
+fi
+sudo -u nominatim "$NOMINATIM_HOME/venv/bin/pip" cache purge >/dev/null 2>&1 || true
+echo "Removed temporary PBF/checksum, pip cache, and any replaced Photon build."
 echo "Setup complete. Start Photon with: bash scripts/run-photon.sh"

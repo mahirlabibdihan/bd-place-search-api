@@ -1,0 +1,41 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl sudo supervisor openssl postgresql \
+      postgresql-postgis postgresql-postgis-scripts osm2pgsql build-essential \
+      pkg-config libicu-dev python3-venv python3-pip python3-dev \
+      openjdk-21-jre-headless wget jq bzip2 redis-server \
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --home-dir /srv/nominatim --shell /bin/bash nominatim \
+ && useradd --system --create-home --home-dir /srv/photon --shell /usr/sbin/nologin photon
+
+ADD volumes/postgres.tar /var/lib/postgresql/
+ADD volumes/nominatim.tar /srv/nominatim/
+ADD volumes/photon.tar /srv/photon/
+COPY volumes/db.env /app/.snapshot-db.env
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY config ./config
+COPY controllers ./controllers
+COPY middlewares ./middlewares
+COPY queues ./queues
+COPY routes ./routes
+COPY services ./services
+COPY utils ./utils
+COPY workers ./workers
+COPY app.js server.js .env.example ./
+COPY docker/supervisord.conf docker/supervisord.render.conf docker/render-entrypoint.sh ./docker/
+COPY scripts/run-photon.sh scripts/request-startup-update.sh ./scripts/
+RUN chmod +x docker/render-entrypoint.sh scripts/run-photon.sh scripts/request-startup-update.sh \
+ && chmod 0600 /app/.snapshot-db.env \
+ && mkdir -p /var/log/place-search
+
+EXPOSE 10000
+ENTRYPOINT ["/app/docker/render-entrypoint.sh"]

@@ -108,7 +108,8 @@ Normally keep these defaults:
 
 ```dotenv
 NODE_ENV=development
-PORT=5000
+PORT=5001
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 PHOTON_BASE_URL=http://127.0.0.1:2322
 PHOTON_REQUEST_TIMEOUT_MS=2000
 PHOTON_RESULT_LIMIT=5
@@ -175,7 +176,7 @@ SEARCH_INDEX_AUTO_UPDATE_ENABLED=true
 SEARCH_INDEX_AUTO_UPDATE_INTERVAL=6h
 SEARCH_INDEX_AUTO_UPDATE_BOOT_DELAY=10min
 SEARCH_INDEX_AUTO_UPDATE_RANDOM_DELAY=10min
-SEARCH_INDEX_API_BASE_URL=http://127.0.0.1:5000
+SEARCH_INDEX_API_BASE_URL=http://127.0.0.1:5001
 ```
 
 Install the systemd timer explicitly:
@@ -196,21 +197,33 @@ sudo systemctl disable --now place-search-update.timer
 
 ## API usage
 
-Search:
+The frontend may use the Photon-compatible GeoJSON endpoint. It supports `q`,
+`limit`, `lang`, and optional `lat` plus `lon`; results remain restricted to
+Bangladesh:
 
 ```bash
-curl --get 'http://127.0.0.1:5000/api/v1/places/search' \
+curl --get 'http://127.0.0.1:5001/api/' \
+  --data-urlencode 'q=Dhaka' --data 'lang=en' --data 'limit=5' | jq
+```
+
+Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of frontend origins. The
+defaults allow Vite on both `127.0.0.1:5173` and `localhost:5173`.
+
+Normalized search endpoints:
+
+```bash
+curl --get 'http://127.0.0.1:5001/api/v1/places/search' \
   --data-urlencode 'q=Dhaka' --data 'lang=en' --data 'limit=5' | jq
 
-curl --get 'http://127.0.0.1:5000/api/v1/places/search' \
+curl --get 'http://127.0.0.1:5001/api/v1/places/search' \
   --data-urlencode 'q=ঢাকা' --data 'lang=bn' --data 'limit=5' | jq
 ```
 
 Health:
 
 ```bash
-curl -sS 'http://127.0.0.1:5000/api/v1/health' | jq
-curl -sS 'http://127.0.0.1:5000/api/v1/health/ready' | jq
+curl -sS 'http://127.0.0.1:5001/api/v1/health' | jq
+curl -sS 'http://127.0.0.1:5001/api/v1/health/ready' | jq
 ```
 
 Load the admin token for the following commands:
@@ -222,14 +235,14 @@ export SEARCH_INDEX_ADMIN_TOKEN="$(sed -n 's/^SEARCH_INDEX_ADMIN_TOKEN=//p' .env
 Check availability without Redis or queueing:
 
 ```bash
-curl -sS 'http://127.0.0.1:5000/api/v1/admin/search-index-updates/availability' \
+curl -sS 'http://127.0.0.1:5001/api/v1/admin/search-index-updates/availability' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq
 ```
 
 Update only when Geofabrik is newer:
 
 ```bash
-curl -sS -X POST 'http://127.0.0.1:5000/api/v1/admin/search-index-updates' \
+curl -sS -X POST 'http://127.0.0.1:5001/api/v1/admin/search-index-updates' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" \
   -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
 ```
@@ -237,7 +250,7 @@ curl -sS -X POST 'http://127.0.0.1:5000/api/v1/admin/search-index-updates' \
 Force an update attempt without the availability precheck:
 
 ```bash
-curl -sS -X POST 'http://127.0.0.1:5000/api/v1/admin/search-index-updates/force' \
+curl -sS -X POST 'http://127.0.0.1:5001/api/v1/admin/search-index-updates/force' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" \
   -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
 ```
@@ -248,7 +261,7 @@ when Nominatim's sequence does not advance.
 Inspect a queued job:
 
 ```bash
-curl -sS 'http://127.0.0.1:5000/api/v1/admin/search-index-updates/JOB_ID' \
+curl -sS 'http://127.0.0.1:5001/api/v1/admin/search-index-updates/JOB_ID' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq
 ```
 
@@ -263,5 +276,5 @@ For a 1,000-concurrent-request smoke load test:
 
 ```bash
 npx autocannon -c 1000 -d 30 -t 20 \
-  'http://127.0.0.1:5000/api/v1/places/search?q=Dhaka&lang=en&limit=5'
+  'http://127.0.0.1:5001/api/v1/places/search?q=Dhaka&lang=en&limit=5'
 ```

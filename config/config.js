@@ -16,7 +16,14 @@ const NOMINATIM_REPLICATION_URL = withoutTrailingSlash(
 
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
-  PORT: numberFromEnv("PORT", 5000),
+  PORT: numberFromEnv("PORT", 5001),
+  CORS_ALLOWED_ORIGINS: (
+    process.env.CORS_ALLOWED_ORIGINS
+      || "http://127.0.0.1:5173,http://localhost:5173"
+  )
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   PHOTON_BASE_URL,
   PHOTON_REQUEST_TIMEOUT_MS: numberFromEnv("PHOTON_REQUEST_TIMEOUT_MS", 2000),
   PHOTON_RESULT_LIMIT: numberFromEnv("PHOTON_RESULT_LIMIT", 5),
@@ -40,4 +47,3 @@ module.exports = {
   PHOTON_UPDATE_URL: `${PHOTON_BASE_URL}/nominatim-update`,
   PHOTON_UPDATE_STATUS_URL: `${PHOTON_BASE_URL}/nominatim-update/status`,
 };
-

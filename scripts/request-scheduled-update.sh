@@ -16,7 +16,7 @@ set +a
 
 IDEMPOTENCY_KEY="scheduled-$(date -u +%Y%m%dT%H)"
 curl --fail-with-body --silent --show-error --request POST \
-  "${SEARCH_INDEX_API_BASE_URL}/api/v1/admin/search-index-updates" \
+  "${SEARCH_INDEX_API_BASE_URL}/api/admin/update" \
   --header "Authorization: Bearer ${SEARCH_INDEX_ADMIN_TOKEN}" \
   --header "Idempotency-Key: ${IDEMPOTENCY_KEY}"
 echo

@@ -1,8 +1,7 @@
 const router = require("express").Router();
 const placeController = require("../controllers/placeController");
 
-router.get("/suggestions", placeController.suggestions);
-router.get("/search", placeController.suggestions);
+router.get("/search", placeController.search);
 
 module.exports = router;
 

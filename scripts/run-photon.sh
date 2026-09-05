@@ -24,7 +24,7 @@ exec sudo -u photon java "-Xms$PHOTON_HEAP_MIN" "-Xmx$PHOTON_HEAP_MAX" \
   -jar "$PHOTON_HOME/releases/photon-$PHOTON_VERSION.jar" serve \
   -data-dir "$PHOTON_HOME/current" \
   -listen-ip "$PHOTON_LISTEN_IP" -listen-port "$PHOTON_LISTEN_PORT" \
-  -default-language bn -metrics-enable prometheus -enable-update-api \
+  -default-language en -metrics-enable prometheus -enable-update-api \
   -host "$DB_HOST" -port "$DB_PORT" -database "$DB_DB" \
   -user "$PHOTON_DB_USER" -languages "$PHOTON_LANGUAGES" \
   -country-codes "$PHOTON_COUNTRY_CODES"

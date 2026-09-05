@@ -22,14 +22,6 @@ exports.create = async (req, res, next) => {
   }
 };
 
-exports.forceCreate = async (req, res, next) => {
-  try {
-    const job = await searchIndexUpdateService.enqueue(req.get("Idempotency-Key"));
-    res.status(202).json(job);
-  } catch (error) {
-    next(error);
-  }
-};
 
 exports.get = async (req, res, next) => {
   try {

@@ -1,0 +1,38 @@
+services:
+  place-search:
+    build: .
+    container_name: bangladesh-place-search
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DB_PGPASSFILE: /srv/place-search/.pgpass
+      NOMINATIM_PROJECT_DIR: /srv/nominatim/project
+      NOMINATIM_BIN: /srv/nominatim/venv/bin/nominatim
+      PHOTON_BASE_URL: http://127.0.0.1:2322
+      PHOTON_LISTEN_IP: 127.0.0.1
+      PHOTON_LISTEN_PORT: "2322"
+      REDIS_URL: redis://127.0.0.1:6379/0
+    ports:
+      - "${HOST_PORT:-5000}:${PORT:-5001}"
+    shm_size: 1gb
+    restart: unless-stopped
+    volumes:
+      - ./.env:/app/.env:ro
+      - postgres-data:/var/lib/postgresql
+      - nominatim-data:/srv/nominatim
+      - photon-data:/srv/photon
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${PORT}/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 30m
+
+volumes:
+  postgres-data:
+  nominatim-data:
+  photon-data:

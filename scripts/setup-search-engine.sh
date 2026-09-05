@@ -32,6 +32,11 @@ set +a
 : "${PHOTON_HEAP_MIN:=1g}"
 : "${PHOTON_HEAP_MAX:=3g}"
 
+IS_LOCAL_DB=false
+if [[ "$DB_HOST" == 127.0.0.1 || "$DB_HOST" == localhost ]]; then
+  IS_LOCAL_DB=true
+fi
+
 [[ $EUID -eq 0 ]] || { echo "Run with sudo: sudo bash scripts/setup-search-engine.sh" >&2; exit 1; }
 for role in "$DB_ADMIN_USER" "$NOMINATIM_DB_USER" "$PHOTON_DB_USER" "$DB_USER"; do
   [[ "$role" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || { echo "Invalid DB role: $role" >&2; exit 1; }
@@ -40,7 +45,7 @@ done
 sql_literal() { printf "%s" "${1//\'/\'\'}"; }
 
 admin_psql() {
-  if [[ -z "${DB_ADMIN_PASS:-}" && ( "$DB_HOST" == 127.0.0.1 || "$DB_HOST" == localhost ) ]]; then
+  if [[ "$IS_LOCAL_DB" == true ]]; then
     sudo -u postgres psql -X -v ON_ERROR_STOP=1 -p "$DB_PORT" "$@"
   else
     PGPASSWORD="${DB_ADMIN_PASS:-}" psql -X -v ON_ERROR_STOP=1 \
@@ -69,12 +74,11 @@ write_pgpass() {
 echo "[1/6] Installing system packages"
 apt update
 apt install -y postgresql postgresql-postgis postgresql-postgis-scripts osm2pgsql \
-  pkg-config libicu-dev python3-venv python3-pip openjdk-21-jre-headless \
+  build-essential pkg-config libicu-dev python3-venv python3-pip python3-dev openjdk-21-jre-headless \
   curl wget jq bzip2 ca-certificates
 
 echo "[2/6] Creating service users and database roles"
-if [[ -z "${DB_ADMIN_PASS:-}" && ( "$DB_HOST" == 127.0.0.1 || "$DB_HOST" == localhost ) ]] \
-  && command -v pg_lsclusters >/dev/null 2>&1; then
+if [[ "$IS_LOCAL_DB" == true ]] && command -v pg_lsclusters >/dev/null 2>&1; then
   LOCAL_DB_PORT=$(pg_lsclusters --no-header | awk '$4 == "online" { print $3; exit }')
   if [[ -n "$LOCAL_DB_PORT" && "$DB_PORT" != "$LOCAL_DB_PORT" ]]; then
     echo "Configured DB_PORT=$DB_PORT, but this Ubuntu PostgreSQL cluster uses $LOCAL_DB_PORT." >&2
@@ -83,10 +87,16 @@ if [[ -z "${DB_ADMIN_PASS:-}" && ( "$DB_HOST" == 127.0.0.1 || "$DB_HOST" == loca
     exit 1
   fi
 fi
+if [[ "$IS_LOCAL_DB" == true && -n "${DB_ADMIN_PASS:-}" ]]; then
+  escaped_admin_password=$(sql_literal "$DB_ADMIN_PASS")
+  printf 'ALTER ROLE "%s" PASSWORD '\''%s'\'';\n' "$DB_ADMIN_USER" "$escaped_admin_password" | admin_psql
+fi
 id -u nominatim >/dev/null 2>&1 || useradd --create-home --home-dir "$NOMINATIM_HOME" --shell /bin/bash nominatim
 id -u photon >/dev/null 2>&1 || useradd --system --home "$PHOTON_HOME" --shell /usr/sbin/nologin photon
 install -d -o nominatim -g nominatim "$NOMINATIM_HOME/project" "$NOMINATIM_HOME/data" "$NOMINATIM_HOME/log"
 install -d -o photon -g photon "$PHOTON_HOME/releases" "$PHOTON_HOME/builds" "$PHOTON_HOME/current"
+chown nominatim:nominatim "$NOMINATIM_HOME"
+chown photon:photon "$PHOTON_HOME"
 ensure_role "$NOMINATIM_DB_USER" "$NOMINATIM_DB_PASS"
 admin_psql -c "ALTER ROLE \"$NOMINATIM_DB_USER\" SUPERUSER"
 ensure_role "$PHOTON_DB_USER" "$PHOTON_DB_PASS"

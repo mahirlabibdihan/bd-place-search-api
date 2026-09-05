@@ -39,16 +39,5 @@ describe("search-index update creation", () => {
     expect(res.status).toHaveBeenCalledWith(202);
   });
 
-  test("force creation enqueues without checking availability", async () => {
-    searchIndexUpdateService.enqueue.mockResolvedValue({ jobId: "update-force" });
-    const req = { get: jest.fn().mockReturnValue("force-request-1") };
-    const res = response();
 
-    await controller.forceCreate(req, res, jest.fn());
-
-    expect(updateAvailabilityService.check).not.toHaveBeenCalled();
-    expect(searchIndexUpdateService.enqueue).toHaveBeenCalledWith("force-request-1");
-    expect(res.status).toHaveBeenCalledWith(202);
-    expect(res.json).toHaveBeenCalledWith({ jobId: "update-force" });
-  });
 });

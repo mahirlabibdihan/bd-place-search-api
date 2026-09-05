@@ -19,15 +19,13 @@ From Ubuntu, open the repository stored on Windows:
 
 ```bash
 cd /mnt/c/Users/Asus/Documents/BPO/bpo-postcode-backend
-cp .env.example .env
-nano .env
-```
-
-Configure the required `.env` values described below, then install everything:
-
-```bash
 sudo bash scripts/setup-all.sh
 ```
+
+When `.env` does not exist, the installer copies `.env.example`, generates a
+random `SEARCH_INDEX_ADMIN_TOKEN`, sets local-development database passwords,
+and pauses so you can review or edit the file before continuing. It never
+overwrites an existing `.env`.
 
 The initial PBF import and Photon index build can take a long time. The installer
 validates the PBF checksum, catches Nominatim up with current regional diffs, and
@@ -41,6 +39,45 @@ bash scripts/run-stack.sh
 ```
 
 Keep the terminal open. Press `Ctrl+C` to stop the stack.
+
+### Docker
+
+To run PostgreSQL/Nominatim, Redis, Photon, the API, and the worker in one
+container:
+
+```bash
+bash scripts/docker-up.sh
+```
+
+The container runs in the background and the script exits after the API becomes
+ready. The `PORT` value in `.env` is the application's listening port, so the
+same configuration works when running with or without Docker:
+
+```dotenv
+PORT=5001
+```
+
+Docker publishes that internal port on host port `5000` by default:
+
+```bash
+bash scripts/docker-up.sh
+```
+
+To use a different host port without changing the application configuration:
+
+```bash
+bash scripts/docker-up.sh --port 5001
+```
+
+Only the Express API port is exposed.
+
+```bash
+docker compose logs -f
+docker compose down
+```
+
+Named volumes preserve the Nominatim database and Photon index. Running
+`docker compose down -v` permanently removes that imported data.
 
 ## Configure `.env`
 
@@ -112,7 +149,8 @@ PORT=5001
 CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 PHOTON_BASE_URL=http://127.0.0.1:2322
 PHOTON_REQUEST_TIMEOUT_MS=2000
-PHOTON_RESULT_LIMIT=5
+PLACE_SEARCH_DEFAULT_LIMIT=5
+PLACE_SEARCH_MAX_LIMIT=20
 PLACE_SEARCH_MIN_CHARS=2
 REDIS_URL=redis://127.0.0.1:6379/0
 REDIS_CONNECT_TIMEOUT_MS=1000
@@ -212,18 +250,17 @@ defaults allow Vite on both `127.0.0.1:5173` and `localhost:5173`.
 Normalized search endpoints:
 
 ```bash
-curl --get 'http://127.0.0.1:5001/api/v1/places/search' \
+curl --get 'http://127.0.0.1:5001/api/search' \
   --data-urlencode 'q=Dhaka' --data 'lang=en' --data 'limit=5' | jq
 
-curl --get 'http://127.0.0.1:5001/api/v1/places/search' \
+curl --get 'http://127.0.0.1:5001/api/search' \
   --data-urlencode 'q=ঢাকা' --data 'lang=bn' --data 'limit=5' | jq
 ```
 
 Health:
 
 ```bash
-curl -sS 'http://127.0.0.1:5001/api/v1/health' | jq
-curl -sS 'http://127.0.0.1:5001/api/v1/health/ready' | jq
+curl -sS 'http://127.0.0.1:5001/api/health' | jq
 ```
 
 Load the admin token for the following commands:
@@ -235,33 +272,22 @@ export SEARCH_INDEX_ADMIN_TOKEN="$(sed -n 's/^SEARCH_INDEX_ADMIN_TOKEN=//p' .env
 Check availability without Redis or queueing:
 
 ```bash
-curl -sS 'http://127.0.0.1:5001/api/v1/admin/search-index-updates/availability' \
+curl -sS 'http://127.0.0.1:5001/api/admin/update/availability' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq
 ```
 
 Update only when Geofabrik is newer:
 
 ```bash
-curl -sS -X POST 'http://127.0.0.1:5001/api/v1/admin/search-index-updates' \
+curl -sS -X POST 'http://127.0.0.1:5001/api/admin/update' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" \
   -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
 ```
-
-Force an update attempt without the availability precheck:
-
-```bash
-curl -sS -X POST 'http://127.0.0.1:5001/api/v1/admin/search-index-updates/force' \
-  -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" \
-  -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
-```
-
-Force means the worker always runs Nominatim catch-up. Photon is still skipped
-when Nominatim's sequence does not advance.
 
 Inspect a queued job:
 
 ```bash
-curl -sS 'http://127.0.0.1:5001/api/v1/admin/search-index-updates/JOB_ID' \
+curl -sS 'http://127.0.0.1:5001/api/admin/update/JOB_ID' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq
 ```
 
@@ -276,5 +302,5 @@ For a 1,000-concurrent-request smoke load test:
 
 ```bash
 npx autocannon -c 1000 -d 30 -t 20 \
-  'http://127.0.0.1:5001/api/v1/places/search?q=Dhaka&lang=en&limit=5'
+  'http://127.0.0.1:5001/api/search?q=Dhaka&lang=en&limit=5'
 ```

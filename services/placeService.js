@@ -1,7 +1,8 @@
 const {
   PHOTON_BASE_URL,
   PHOTON_REQUEST_TIMEOUT_MS,
-  PHOTON_RESULT_LIMIT,
+  PLACE_SEARCH_DEFAULT_LIMIT,
+  PLACE_SEARCH_MAX_LIMIT,
   PLACE_SEARCH_MIN_CHARS,
 } = require("../config/config");
 
@@ -21,7 +22,7 @@ class PlaceService {
       throw clientError("lang must be a two-letter language code");
     }
 
-    const requestedLimit = limit === undefined ? PHOTON_RESULT_LIMIT : Number(limit);
+    const requestedLimit = limit === undefined ? PLACE_SEARCH_DEFAULT_LIMIT : Number(limit);
     if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
       throw clientError("limit must be a positive integer");
     }
@@ -29,7 +30,7 @@ class PlaceService {
     const url = new URL("/api", PHOTON_BASE_URL);
     url.searchParams.set("q", query);
     if (lang) url.searchParams.set("lang", lang.toLowerCase());
-    url.searchParams.set("limit", String(Math.min(requestedLimit, PHOTON_RESULT_LIMIT)));
+    url.searchParams.set("limit", String(Math.min(requestedLimit, PLACE_SEARCH_MAX_LIMIT)));
     url.searchParams.set("bbox", "88.0,20.5,92.8,26.7");
 
     if ((lat === undefined) !== (lon === undefined)) {
@@ -77,7 +78,7 @@ class PlaceService {
     };
   };
 
-  suggest = async ({ q, lang = "bn", limit }) => {
+  suggest = async ({ q, lang = "en", limit }) => {
     const body = await this.searchGeoJson({ q, lang, limit });
     return body.features
       .map((feature) => ({

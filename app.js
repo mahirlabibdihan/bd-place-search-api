@@ -11,9 +11,9 @@ app.disable("x-powered-by");
 app.use(cors);
 app.use(express.json({ limit: "32kb" }));
 app.get("/api", placeController.photon);
-app.use("/api/v1/health", healthRoutes);
-app.use("/api/v1/places", placeRoutes);
-app.use("/api/v1/admin/search-index-updates", searchIndexUpdateRoutes);
+app.use("/api", healthRoutes);
+app.use("/api", placeRoutes);
+app.use("/api/admin/update", searchIndexUpdateRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

@@ -11,10 +11,10 @@ class PlaceController extends Controller {
     }
   };
 
-  suggestions = async (req, res, next) => {
+  search = async (req, res, next) => {
     try {
-      const suggestions = await placeService.suggest(req.query);
-      res.status(200).json({ data: suggestions });
+      const places = await placeService.suggest(req.query);
+      res.status(200).json({ data: places });
     } catch (error) {
       next(error);
     }

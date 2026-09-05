@@ -16,6 +16,7 @@ const NOMINATIM_REPLICATION_URL = withoutTrailingSlash(
 
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
+  HOST: process.env.HOST || "127.0.0.1",
   PORT: numberFromEnv("PORT", 5001),
   CORS_ALLOWED_ORIGINS: (
     process.env.CORS_ALLOWED_ORIGINS
@@ -26,7 +27,8 @@ module.exports = {
     .filter(Boolean),
   PHOTON_BASE_URL,
   PHOTON_REQUEST_TIMEOUT_MS: numberFromEnv("PHOTON_REQUEST_TIMEOUT_MS", 2000),
-  PHOTON_RESULT_LIMIT: numberFromEnv("PHOTON_RESULT_LIMIT", 5),
+  PLACE_SEARCH_DEFAULT_LIMIT: numberFromEnv("PLACE_SEARCH_DEFAULT_LIMIT", 5),
+  PLACE_SEARCH_MAX_LIMIT: numberFromEnv("PLACE_SEARCH_MAX_LIMIT", 20),
   PLACE_SEARCH_MIN_CHARS: numberFromEnv("PLACE_SEARCH_MIN_CHARS", 2),
   REDIS_URL: process.env.REDIS_URL || "redis://127.0.0.1:6379/0",
   REDIS_CONNECT_TIMEOUT_MS: numberFromEnv("REDIS_CONNECT_TIMEOUT_MS", 1000),

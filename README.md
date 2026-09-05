@@ -1,473 +1,232 @@
 # Bangladesh Place Search Backend
 
-This repository has two parts:
-
-1. a private Bangladesh Photon search engine built from OpenStreetMap data;
-2. a standalone Express API that exposes text search and manages background
-   Nominatim/Photon updates.
-
-Photon returns coordinates as `[longitude, latitude]`. After a caller selects a
-place, this service's responsibility ends; spatial business logic belongs to
-downstream services.
-
-# 1. Set up the Photon search engine
-
-The data flow is:
+Standalone Bangladesh place search backed by Photon. The API returns selected
+place coordinates as `[longitude, latitude]`; downstream services own all later
+spatial logic.
 
 ```text
-Geofabrik .osm.pbf -> Nominatim PostgreSQL -> Photon/OpenSearch index
+Geofabrik -> Nominatim/PostgreSQL -> Photon index -> Express API
+                                      ^
+                         Redis/BullMQ update worker
 ```
 
-These commands target Ubuntu 24.04, Nominatim 5.3.2, Photon 1.2.1, Java 21,
-and Bangladesh data. Nominatim and Photon should remain bound to localhost.
+The scripts target Ubuntu 24.04/WSL2, Node.js 22, Nominatim 5.3.2,
+Photon 1.2.1, Java 21, and Bangladesh data.
 
-## Automated setup
+## Quick start
 
-For a new installation, configure everything in the repository's ignored `.env`
-and run one setup script:
+From Ubuntu, open the repository stored on Windows:
 
 ```bash
+cd /mnt/c/Users/Asus/Documents/BPO/bpo-postcode-backend
 cp .env.example .env
 nano .env
+```
+
+Configure the required `.env` values described below, then install everything:
+
+```bash
 sudo bash scripts/setup-all.sh
+```
+
+The initial PBF import and Photon index build can take a long time. The installer
+validates the PBF checksum, catches Nominatim up with current regional diffs, and
+can resume after an interruption. A stale Photon build is archived before being
+rebuilt.
+
+Start Photon, the API, and the worker:
+
+```bash
 bash scripts/run-stack.sh
 ```
 
-At minimum, replace these values in `.env`:
+Keep the terminal open. Press `Ctrl+C` to stop the stack.
+
+## Configure `.env`
+
+`.env` is ignored by Git and is sourced by Bash scripts, so use `KEY=value`
+without spaces around `=`. Generate suitable development secrets with:
+
+```bash
+openssl rand -hex 32
+```
+
+### Values you must change
+
+| Variable | What to set |
+| --- | --- |
+| `SEARCH_INDEX_ADMIN_TOKEN` | A long random token used to authorize update APIs. |
+| `DB_PASS` | Password for the read-only `DB_USER` used by the API and worker. |
+| `NOMINATIM_DB_PASS` | Password for the Nominatim database owner. |
+| `PHOTON_DB_PASS` | Password for the Photon import/update database user. |
+
+Using a different generated value for each password is recommended. The setup
+script creates the roles and generates their required `.pgpass` files.
+
+### Database settings
+
+These defaults are correct for a single local installation:
 
 ```dotenv
 DB_HOST=127.0.0.1
 DB_PORT=5432
 DB_DB=nominatim
+DB_USER=place_search_status
+DB_PASS=replace-with-a-strong-password
+DB_SSL=false
+DB_PGPASSFILE=/srv/place-search/.pgpass
+
 DB_ADMIN_USER=postgres
 DB_ADMIN_PASS=
+DB_ADMIN_DB=postgres
 NOMINATIM_DB_USER=nominatim
 NOMINATIM_DB_PASS=replace-with-a-strong-password
 PHOTON_DB_USER=photon_import
 PHOTON_DB_PASS=replace-with-a-strong-password
 ```
 
-For local PostgreSQL peer authentication, leave `DB_ADMIN_PASS` empty. For a
-remote database, set `DB_HOST`, `DB_ADMIN_USER`, and `DB_ADMIN_PASS`. Quote values
-containing shell-special characters because the setup script sources `.env`.
-`setup-all.sh` installs the search engine, system Node.js 22, Redis, and npm
-dependencies. `run-stack.sh` starts Photon, the Express API, and the update worker
-together and stops the remaining processes if one exits. The installer creates
-the database roles and password files. Interrupted setup is resumable: a valid
-Nominatim database is reused, while a stale Photon build is archived with a UTC
-timestamp before a fresh index is created. Before building Photon, setup applies
-all currently published Geofabrik diffs so a new installation starts current.
-
-When testing in a second WSL distribution while the original one is running,
-PostgreSQL may select another port because WSL distributions share localhost.
-The installer detects this and reports the correct port. Use a separate config:
+- Leave `DB_ADMIN_PASS` empty for local Ubuntu peer authentication.
+- For a remote PostgreSQL server, change `DB_HOST`, `DB_PORT`, and administrator
+  credentials. Set `DB_SSL=true` for the Node API/worker connection.
+- `DB_USER` is intentionally read-only; do not replace it with the database
+  administrator.
+- If a second WSL distribution selects port `5433`, use a separate file:
 
 ```bash
 cp .env .env.test
-sed -i 's/^DB_PORT=.*/DB_PORT=5433/' .env.test  # use the port reported by the script
+sed -i 's/^DB_PORT=.*/DB_PORT=5433/' .env.test
 sudo bash scripts/setup-all.sh .env.test
 bash scripts/run-stack.sh .env.test
 ```
 
-The individual scripts remain available when only one part is needed:
+The installer detects a local PostgreSQL port mismatch and reports the correct
+port. `.env.test` and other `.env.*` files are ignored by Git.
 
-```bash
-sudo bash scripts/setup-search-engine.sh  # Nominatim and Photon
-sudo bash scripts/setup-backend.sh        # Node.js, Redis and npm packages
-bash scripts/run-photon.sh                # Photon only
-bash scripts/run-stack.sh                 # Photon, API and worker
-```
+### API, Photon, and Redis settings
 
-To completely reset only this stack and test installation again:
-
-```bash
-sudo bash scripts/reset-all.sh
-sudo bash scripts/setup-all.sh
-bash scripts/run-stack.sh
-```
-
-The reset script displays the active WSL distribution and exact deletion scope,
-then requires typing its confirmation phrase. It preserves the Windows repository,
-`.env`, and `node_modules`. Use `--yes` only in disposable automated test distros.
-
-The remaining section documents the equivalent manual steps and troubleshooting.
-
-## 1.1 Install system dependencies
-
-```bash
-sudo apt update
-sudo apt install -y postgresql postgresql-postgis \
-  postgresql-postgis-scripts osm2pgsql pkg-config libicu-dev \
-  python3-venv python3-pip openjdk-21-jre-headless \
-  curl wget jq bzip2 ca-certificates
-```
-
-## 1.2 Install Nominatim
-
-```bash
-sudo useradd --create-home --home-dir /srv/nominatim --shell /bin/bash nominatim
-sudo install -d -o nominatim -g nominatim \
-  /srv/nominatim/project /srv/nominatim/data /srv/nominatim/log
-sudo -u nominatim python3 -m venv /srv/nominatim/venv
-sudo -u nominatim /srv/nominatim/venv/bin/pip install --upgrade pip
-sudo -u nominatim /srv/nominatim/venv/bin/pip install \
-  'nominatim-db==5.3.2' 'psycopg[binary]' osmium
-sudo -u postgres createuser --superuser nominatim
-sudo -u postgres createuser www-data
-```
-
-Do not pre-create the `nominatim` database. `nominatim import` creates it, and an
-empty pre-created database causes `database already exists` followed by a version
-mismatch.
-
-Create the Nominatim project configuration:
-
-```bash
-sudo install -m 0600 -o nominatim -g nominatim /dev/null \
-  /srv/nominatim/project/.env
-sudo -u nominatim nano /srv/nominatim/project/.env
-```
+Normally keep these defaults:
 
 ```dotenv
-NOMINATIM_DATABASE_DSN=pgsql:dbname=nominatim;user=nominatim
-NOMINATIM_TOKENIZER=icu
+NODE_ENV=development
+PORT=5000
+PHOTON_BASE_URL=http://127.0.0.1:2322
+PHOTON_REQUEST_TIMEOUT_MS=2000
+PHOTON_RESULT_LIMIT=5
+PLACE_SEARCH_MIN_CHARS=2
+REDIS_URL=redis://127.0.0.1:6379/0
+REDIS_CONNECT_TIMEOUT_MS=1000
+SEARCH_INDEX_UPDATE_ENABLED=true
+SEARCH_INDEX_UPDATE_TIMEOUT_SECONDS=7200
+```
+
+- Increase `PHOTON_REQUEST_TIMEOUT_MS` if searches time out under heavy load.
+- Text search remains available when Redis is down; only update features are
+  disabled.
+- Search returns HTTP 503 when Photon is unavailable.
+- Photon update endpoints are derived from `PHOTON_BASE_URL`.
+- Geofabrik's `state.txt` URL is derived from `NOMINATIM_REPLICATION_URL`.
+
+### Search-engine installation settings
+
+These defaults install English and Bangla Bangladesh data:
+
+```dotenv
+NOMINATIM_PROJECT_DIR=/srv/nominatim/project
+NOMINATIM_BIN=/srv/nominatim/venv/bin/nominatim
+NOMINATIM_HOME=/srv/nominatim
+NOMINATIM_VERSION=5.3.2
 NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/asia/bangladesh-updates
-NOMINATIM_REPLICATION_UPDATE_INTERVAL=86400
-NOMINATIM_REPLICATION_RECHECK_INTERVAL=900
+OSM_PBF_URL=https://download.geofabrik.de/asia/bangladesh-latest.osm.pbf
+
+PHOTON_HOME=/srv/photon
+PHOTON_VERSION=1.2.1
+PHOTON_HEAP_MIN=1g
+PHOTON_HEAP_MAX=3g
+PHOTON_LANGUAGES=en,bn
+PHOTON_COUNTRY_CODES=bd
+PHOTON_LISTEN_IP=127.0.0.1
+PHOTON_LISTEN_PORT=2322
 ```
 
-## 1.3 Download and import Bangladesh
+Increase `PHOTON_HEAP_MAX` only when the machine has enough RAM. Keep Photon
+bound to localhost unless a private network and access controls are configured.
 
-```bash
-sudo -u nominatim wget -O /srv/nominatim/data/bangladesh-latest.osm.pbf \
-  https://download.geofabrik.de/asia/bangladesh-latest.osm.pbf
-sudo -u nominatim wget -O /srv/nominatim/data/bangladesh-latest.osm.pbf.md5 \
-  https://download.geofabrik.de/asia/bangladesh-latest.osm.pbf.md5
+## Scripts
 
-cd /srv/nominatim/data
-md5sum --check bangladesh-latest.osm.pbf.md5
-sha256sum bangladesh-latest.osm.pbf
+| Command | Purpose |
+| --- | --- |
+| `sudo bash scripts/setup-all.sh` | Install the complete search engine and backend. |
+| `sudo bash scripts/setup-backend.sh` | Install Node.js 22, Redis, and npm packages only. |
+| `sudo bash scripts/setup-search-engine.sh` | Install/import Nominatim and Photon only. |
+| `bash scripts/run-stack.sh` | Run Photon, API, and worker together. |
+| `bash scripts/run-photon.sh` | Run Photon only. |
+| `sudo bash scripts/reset-all.sh` | Remove the WSL installation while preserving the repository and `.env`. |
 
-cd /srv/nominatim/project
-set -o pipefail
-sudo -u nominatim /srv/nominatim/venv/bin/nominatim import \
-  --osm-file /srv/nominatim/data/bangladesh-latest.osm.pbf \
-  --reverse-only 2>&1 | sudo tee /srv/nominatim/log/import.log
+The reset script prints the active WSL distribution and requires an explicit
+confirmation phrase. It permanently deletes PostgreSQL, Nominatim, Photon, and
+Redis data from that distribution.
 
-sudo -u nominatim /srv/nominatim/venv/bin/nominatim admin --check-database
-sudo -u nominatim /srv/nominatim/venv/bin/nominatim replication --init
-```
+## Optional automatic updates
 
-`--reverse-only` is appropriate because Nominatim feeds Photon rather than serving
-forward search itself. Do not use `--no-updates`.
-
-Nominatim persists the replication source selected by `replication --init`.
-Changing `NOMINATIM_REPLICATION_URL` later does not switch an initialized database
-until initialization is run again. Verify the project setting:
-
-```bash
-sudo -u nominatim sed -n '/^NOMINATIM_REPLICATION_/p' \
-  /srv/nominatim/project/.env
-```
-
-For this Bangladesh installation, the URL must be:
+Automatic updates are separate from `setup-all.sh`. Configure the schedule:
 
 ```dotenv
-NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/asia/bangladesh-updates
+SEARCH_INDEX_AUTO_UPDATE_ENABLED=true
+SEARCH_INDEX_AUTO_UPDATE_INTERVAL=6h
+SEARCH_INDEX_AUTO_UPDATE_BOOT_DELAY=10min
+SEARCH_INDEX_AUTO_UPDATE_RANDOM_DELAY=10min
+SEARCH_INDEX_API_BASE_URL=http://127.0.0.1:5000
 ```
 
-After changing the URL, stop the update worker, wait until no replication command
-is running, and reinitialize from the Nominatim project directory:
+Install the systemd timer explicitly:
 
 ```bash
-pgrep -af '[n]ominatim replication'
-pgrep -af '[s]earchIndexUpdateWorker'
-
-sudo -u nominatim bash -c '
-  cd /srv/nominatim/project &&
-  /srv/nominatim/venv/bin/nominatim replication --init
-'
-
-sudo -u postgres psql -d nominatim -c \
-  'SELECT sequence_id, lastimportdate FROM import_status'
+sudo bash scripts/install-update-timer.sh
 ```
 
-With Geofabrik Bangladesh updates, `sequence_id` must be in the same regional
-namespace as `bangladesh-updates/state.txt` (for example, around `4867`), not the
-global OSM minutely namespace (for example, around `7271751`).
-
-## 1.4 Install Photon and grant database access
+The timer calls the conditional update API. It creates no job when Geofabrik is
+not newer. The API, Redis, and worker must be running when the timer fires.
 
 ```bash
-sudo useradd --system --home /srv/photon --shell /usr/sbin/nologin photon
-sudo install -d -o photon -g photon \
-  /srv/photon/releases /srv/photon/builds /srv/photon/current
-sudo -u photon wget -O /srv/photon/releases/photon-1.2.1.jar \
-  https://github.com/komoot/photon/releases/download/1.2.1/photon-1.2.1.jar
-sha256sum /srv/photon/releases/photon-1.2.1.jar
-
-sudo -u postgres createuser --pwprompt photon_import
-sudo -u postgres psql -d nominatim -c \
-  'CREATE INDEX IF NOT EXISTS placex_country_code_idx ON placex(country_code)'
-sudo -u postgres psql -d nominatim -c \
-  'GRANT USAGE ON SCHEMA public TO photon_import'
-sudo -u postgres psql -d nominatim -c \
-  'GRANT SELECT ON ALL TABLES IN SCHEMA public TO photon_import'
+systemctl list-timers place-search-update.timer
+sudo systemctl start place-search-update.service
+journalctl -u place-search-update.service -n 50 --no-pager
+sudo systemctl disable --now place-search-update.timer
 ```
 
-If the last grant reports `tuple concurrently updated`, wait for the Nominatim
-import to finish and run that grant again.
+## API usage
 
-Allow authenticated localhost access for `photon_import` in `pg_hba.conf`. Store
-its password without putting the secret in a shell command:
+Search:
 
 ```bash
-sudo install -m 0600 -o photon -g photon /dev/null /srv/photon/.pgpass
-sudo -u photon nano /srv/photon/.pgpass
-```
-
-Enter this line, replacing `PASSWORD`:
-
-```text
-127.0.0.1:5432:nominatim:photon_import:PASSWORD
-```
-
-Verify permissions:
-
-```bash
-sudo stat -c '%U %G %a %n' /srv/photon/.pgpass
-```
-
-## 1.5 Build and prepare the Photon index
-
-Pause Nominatim replication while performing the initial Photon import.
-
-```bash
-sudo -u photon mkdir -p /srv/photon/builds/bd-initial
-cd /srv/photon/builds/bd-initial
-sudo -u photon java -Xms1g -Xmx3g \
-  -jar /srv/photon/releases/photon-1.2.1.jar import \
-  -host 127.0.0.1 -port 5432 -database nominatim -user photon_import \
-  -languages en,bn -country-codes bd \
-  -data-dir /srv/photon/builds/bd-initial
-```
-
-Photon automatically creates a `photon_data` child inside `-data-dir`. Promote
-the verified index with a symlink instead of copying or importing over it:
-
-```bash
-sudo -u photon ln -sfnT \
-  /srv/photon/builds/bd-initial/photon_data \
-  /srv/photon/current/photon_data
-
-readlink -f /srv/photon/current/photon_data
-sudo du -shL /srv/photon/current/photon_data
-```
-
-The resolved path must be
-`/srv/photon/builds/bd-initial/photon_data`. If `ln` reports that the target is a
-real directory rather than a symlink, stop and inspect it; do not delete or
-overwrite an unknown index.
-
-Photon update initialization needs a database owner connection over TCP. Set a
-password for `nominatim` and store it in that operating-system user's password
-file without putting the secret in a command:
-
-```bash
-sudo -u postgres psql -c '\password nominatim'
-sudo install -m 0600 -o nominatim -g nominatim /dev/null \
-  /srv/nominatim/.pgpass
-sudo -u nominatim nano /srv/nominatim/.pgpass
-```
-
-Enter this line, replacing `PASSWORD`:
-
-```text
-127.0.0.1:5432:nominatim:nominatim:PASSWORD
-```
-
-Then initialize Photon's Nominatim update tracking once:
-
-```bash
-sudo -u nominatim java \
-  -jar /srv/photon/releases/photon-1.2.1.jar update-init \
-  -host 127.0.0.1 -port 5432 -database nominatim -user nominatim \
-  -import-user photon_import
-```
-
-This creates the tracking tables/triggers and grants the required update rights
-to `photon_import`. It must finish before Photon starts with `-enable-update-api`.
-
-## 1.6 Run Photon
-
-```bash
-sudo -u photon java -Xms1g -Xmx3g \
-  -jar /srv/photon/releases/photon-1.2.1.jar serve \
-  -data-dir /srv/photon/current \
-  -listen-ip 127.0.0.1 -listen-port 2322 \
-  -default-language bn -metrics-enable prometheus \
-  -enable-update-api \
-  -host 127.0.0.1 -port 5432 -database nominatim \
-  -user photon_import -languages en,bn -country-codes bd
-```
-
-Always pass the parent directory to `-data-dir`. Passing
-`/srv/photon/current/photon_data` makes Photon look for the incorrect nested path
-`/srv/photon/current/photon_data/photon_data`.
-
-Test Photon inside WSL:
-
-```bash
-curl --get 'http://127.0.0.1:2322/api' \
-  --data-urlencode 'q=Dhaka' --data 'lang=en' --data 'limit=5' | jq
-curl --get 'http://127.0.0.1:2322/api' \
-  --data-urlencode 'q=ঢাকা' --data 'lang=bn' --data 'limit=5' | jq
-curl -sS 'http://127.0.0.1:2322/nominatim-update/status'
-```
-
-Photon 1.2.1 returns plain-text `BUSY` or `OK` from the status endpoint. The
-worker supports these responses as well as JSON forms.
-
-
-# 2. Set up and run the backend
-
-## 2.1 Install Node.js and Redis
-
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 22
-nvm alias default 22
-nvm use 22
-
-sudo apt update
-sudo apt install -y redis-server
-sudo systemctl enable --now redis-server
-redis-cli ping
-```
-
-Redis is optional for text search. If Redis is down, search remains available,
-readiness reports `searchIndexUpdates: disabled`, and update requests fail quickly
-with HTTP 503. The feature reconnects when Redis returns.
-
-## 2.2 Configure the application
-
-```bash
-cd /mnt/c/Users/Asus/Documents/BPO/bpo-postcode-backend
-cp .env.example .env
-npm install
-openssl rand -hex 32
-nano .env
-```
-
-Put the generated value in `SEARCH_INDEX_ADMIN_TOKEN`. Never commit `.env`.
-
-## 2.3 Configure the availability check
-
-The availability endpoint compares Nominatim's local `lastimportdate` with
-Geofabrik's current data timestamp. It deliberately uses timestamps because a
-misconfigured Nominatim database may use the global OSM sequence namespace while
-Geofabrik's `sequenceNumber` is regional. Create a narrowly scoped PostgreSQL login:
-
-```bash
-sudo -u postgres createuser --pwprompt place_search_status
-sudo -u postgres psql -d nominatim -c \
-  'GRANT CONNECT ON DATABASE nominatim TO place_search_status'
-sudo -u postgres psql -d nominatim -c \
-  'GRANT USAGE ON SCHEMA public TO place_search_status'
-sudo -u postgres psql -d nominatim -c \
-  'GRANT SELECT ON TABLE import_status TO place_search_status'
-
-sudo install -d -m 0700 -o "$USER" -g "$USER" /srv/place-search
-sudo install -m 0600 -o "$USER" -g "$USER" /dev/null \
-  /srv/place-search/.pgpass
-nano /srv/place-search/.pgpass
-```
-
-Enter this line, replacing `PASSWORD`:
-
-```text
-127.0.0.1:5432:nominatim:place_search_status:PASSWORD
-```
-
-Configure the API and worker with the same database connection:
-
-```dotenv
-DB_USER=place_search_status
-DB_HOST=127.0.0.1
-DB_PASS=
-DB_DB=nominatim
-DB_PORT=5432
-DB_SSL=false
-DB_PGPASSFILE=/srv/place-search/.pgpass
-```
-
-Leave `DB_PASS` empty to load the password from `DB_PGPASSFILE`. For a remote
-database, change `DB_HOST`, set `DB_SSL=true`, and use the remote hostname in
-`.pgpass`. These settings configure the Node API and worker; Nominatim itself
-continues to use `/srv/nominatim/project/.env`.
-
-## 2.4 Run the API and worker
-
-Terminal 1 - the API:
-
-```bash
-cd /mnt/c/Users/Asus/Documents/BPO/bpo-postcode-backend
-npm start
-```
-
-Terminal 2 - the worker. Use system Node because the `nominatim` user normally
-cannot traverse another user's nvm installation:
-
-```bash
-sudo -u nominatim /usr/bin/node \
-  /mnt/c/Users/Asus/Documents/BPO/bpo-postcode-backend/workers/searchIndexUpdateWorker.js
-```
-
-The worker reads `import_status.sequence_id` before and after Nominatim
-replication. When it is unchanged, the job completes with `outcome: no_changes`
-and does not call Photon. The POST endpoint also returns `status: no_changes`
-without queuing when the availability check is false. When an update exists, the
-worker uses `replication --catch-up`, which checks immediately and applies all
-available diffs without `--once` sleeping until the daily publication window.
-`DB_USER`, `DB_HOST`, `DB_PASS`, `DB_DB`, `DB_PORT`, `DB_SSL`, and
-`DB_PGPASSFILE` configure database access for both the API and worker.
-
-Always run manual Nominatim replication from its project directory:
-
-```bash
-sudo -u nominatim bash -c '
-  cd /srv/nominatim/project &&
-  /srv/nominatim/venv/bin/nominatim replication --catch-up
-'
-```
-
-For production, run Photon, the API, and the worker as separate systemd services.
-
-## 2.5 Test the API
-
-English and Bangla search:
-
-```bash
-curl --get 'http://127.0.0.1:5000/api/v1/places/suggestions' \
+curl --get 'http://127.0.0.1:5000/api/v1/places/search' \
   --data-urlencode 'q=Dhaka' --data 'lang=en' --data 'limit=5' | jq
 
 curl --get 'http://127.0.0.1:5000/api/v1/places/search' \
   --data-urlencode 'q=ঢাকা' --data 'lang=bn' --data 'limit=5' | jq
 ```
 
-Check whether Geofabrik has newer data:
+Health:
 
 ```bash
-curl -sS \
-  'http://127.0.0.1:5000/api/v1/admin/search-index-updates/availability' \
+curl -sS 'http://127.0.0.1:5000/api/v1/health' | jq
+curl -sS 'http://127.0.0.1:5000/api/v1/health/ready' | jq
+```
+
+Load the admin token for the following commands:
+
+```bash
+export SEARCH_INDEX_ADMIN_TOKEN="$(sed -n 's/^SEARCH_INDEX_ADMIN_TOKEN=//p' .env)"
+```
+
+Check availability without Redis or queueing:
+
+```bash
+curl -sS 'http://127.0.0.1:5000/api/v1/admin/search-index-updates/availability' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq
 ```
 
-The response includes `updateAvailable`, `localImportDate`,
-`remoteDataTimestamp`, `remoteRegionalSequence`, and `checkedAt`. This check does not require Redis.
-
-Update only when Geofabrik has newer data:
+Update only when Geofabrik is newer:
 
 ```bash
 curl -sS -X POST 'http://127.0.0.1:5000/api/v1/admin/search-index-updates' \
@@ -475,106 +234,34 @@ curl -sS -X POST 'http://127.0.0.1:5000/api/v1/admin/search-index-updates' \
   -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
 ```
 
-This endpoint checks availability first. It returns `status: no_changes` without
-creating a job when the local import is current.
-
-Force an update attempt without the availability check:
+Force an update attempt without the availability precheck:
 
 ```bash
-curl -sS -X POST \
-  'http://127.0.0.1:5000/api/v1/admin/search-index-updates/force' \
+curl -sS -X POST 'http://127.0.0.1:5000/api/v1/admin/search-index-updates/force' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" \
   -H "Idempotency-Key: $(openssl rand -hex 16)" | jq
 ```
 
-The force endpoint always queues the worker. The worker runs Nominatim catch-up,
-but still avoids calling Photon when Nominatim's sequence does not advance.
+Force means the worker always runs Nominatim catch-up. Photon is still skipped
+when Nominatim's sequence does not advance.
 
 Inspect a queued job:
 
 ```bash
-curl -sS \
-  'http://127.0.0.1:5000/api/v1/admin/search-index-updates/JOB_ID' \
+curl -sS 'http://127.0.0.1:5000/api/v1/admin/search-index-updates/JOB_ID' \
   -H "Authorization: Bearer $SEARCH_INDEX_ADMIN_TOKEN" | jq
 ```
 
-Health:
+## Development
 
 ```bash
-curl -i 'http://127.0.0.1:5000/api/v1/health'
-curl -i 'http://127.0.0.1:5000/api/v1/health/ready'
+npm run dev
+npm test
 ```
 
-When Photon is down, search returns HTTP 503:
-
-```json
-{ "error": "Place search is temporarily unavailable" }
-```
-
-## 2.6 Replication troubleshooting
-
-Use the API availability endpoint before requesting an update. Do not invoke
-`replication --once` for an on-demand check against Geofabrik: it respects
-`NOMINATIM_REPLICATION_UPDATE_INTERVAL=86400` and may print:
-
-```text
-Sleeping for ... sec before next update.
-```
-
-Do not override the interval with `0`. Nominatim rejects that for Geofabrik with:
-
-```text
-Update interval too low for download.geofabrik.de.
-FATAL: Invalid replication update interval setting.
-```
-
-The backend avoids both cases: POST checks the upstream timestamp before queuing,
-and the worker uses `replication --catch-up` only when newer data exists.
-
-If `sequenceBefore` is around `727xxxx`, Nominatim is using the global OSM
-minutely namespace. For this setup it should be near Geofabrik's Bangladesh
-regional sequence, such as `4867`. Verify `.env`, stop all update processes, and
-rerun `replication --init` as described in section 1.3.
-
-A BullMQ job with `status: waiting` is only queued. Confirm Redis and the worker:
+For a 1,000-concurrent-request smoke load test:
 
 ```bash
-redis-cli ping
-pgrep -af '[s]earchIndexUpdateWorker'
+npx autocannon -c 1000 -d 30 -t 20 \
+  'http://127.0.0.1:5000/api/v1/places/search?q=Dhaka&lang=en&limit=5'
 ```
-
-Generating a fresh `Idempotency-Key` intentionally creates a different job.
-Reuse the same key when retrying the same request.
-
-## 2.7 Updates, recovery, and production checks
-
-The fixed `bangladesh-latest.osm.pbf` URL is for initial installation, disaster
-recovery, or an occasional clean rebuild. Do not download and re-import the full
-PBF for routine updates. Use the configured Geofabrik replication diffs instead.
-
-The update sequence is:
-
-1. the worker reads Nominatim's current replication sequence;
-2. Nominatim applies available `.osc.gz` diffs;
-3. if the sequence did not advance, the job finishes without calling Photon;
-4. if it advanced, the worker triggers Photon's private update API;
-5. the worker waits for `OK` and runs English and Bangla smoke searches.
-
-Operational rules:
-
-- Keep PostgreSQL, Photon, Redis, and the update endpoints private.
-- Do not run Nominatim and Photon update operations concurrently.
-- Do not import over a live Photon index; build beside it and switch after checks.
-- Keep `.env` and all `.pgpass` files at mode `0600` and out of Git.
-- Use bounded job retention and no automatic infinite retry of failed imports.
-- Back up configuration and record the PBF checksum, import date, and versions.
-
-Acceptance checklist:
-
-- `nominatim admin --check-database` succeeds and replication is initialized.
-- Photon starts without index errors and `/nominatim-update/status` returns `OK`.
-- English and Bangla searches return Bangladesh results with coordinates.
-- Text search still works when Redis is stopped; update endpoints return 503.
-- Photon outages produce a clear search 503 response.
-- Duplicate update requests cannot run overlapping update jobs.
-- An unchanged replication sequence completes with `outcome: no_changes`.

@@ -1,8 +1,10 @@
 jest.mock("../services/searchIndexUpdateService", () => ({ enqueue: jest.fn() }));
 jest.mock("../services/updateAvailabilityService", () => ({ check: jest.fn() }));
+jest.mock("../services/indexStatsService", () => ({ getStats: jest.fn() }));
 
 const searchIndexUpdateService = require("../services/searchIndexUpdateService");
 const updateAvailabilityService = require("../services/updateAvailabilityService");
+const indexStatsService = require("../services/indexStatsService");
 const controller = require("../controllers/searchIndexUpdateController");
 
 const response = () => {
@@ -38,6 +40,29 @@ describe("search-index update creation", () => {
     expect(searchIndexUpdateService.enqueue).toHaveBeenCalledWith("request-1");
     expect(res.status).toHaveBeenCalledWith(202);
   });
+});
 
+describe("search-index stats", () => {
+  beforeEach(() => jest.clearAllMocks());
 
+  test("returns the stats service's result", async () => {
+    const stats = { totalPlaces: 100, roads: 40, administrativeAreas: 5, lastImportDate: "2026-01-01T00:00:00.000Z" };
+    indexStatsService.getStats.mockResolvedValue(stats);
+    const res = response();
+
+    await controller.stats({}, res, jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(stats);
+  });
+
+  test("forwards errors to next", async () => {
+    const error = new Error("boom");
+    indexStatsService.getStats.mockRejectedValue(error);
+    const next = jest.fn();
+
+    await controller.stats({}, response(), next);
+
+    expect(next).toHaveBeenCalledWith(error);
+  });
 });

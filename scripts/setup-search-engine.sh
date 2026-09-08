@@ -161,6 +161,7 @@ ensure_role "$DB_USER" "$DB_PASS"
 admin_psql -d "$DB_DB" -c "GRANT CONNECT ON DATABASE \"$DB_DB\" TO \"$DB_USER\""
 admin_psql -d "$DB_DB" -c "GRANT USAGE ON SCHEMA public TO \"$DB_USER\""
 admin_psql -d "$DB_DB" -c "GRANT SELECT ON TABLE import_status TO \"$DB_USER\""
+admin_psql -d "$DB_DB" -c "GRANT SELECT ON TABLE placex TO \"$DB_USER\"" # for the admin stats endpoint (place/road counts)
 STATUS_OWNER=${SUDO_USER:-root}
 install -d -m 0700 -o "$STATUS_OWNER" -g "$STATUS_OWNER" "$(dirname "$DB_PGPASSFILE")"
 write_pgpass "$DB_PGPASSFILE" "$STATUS_OWNER" "$DB_USER" "$DB_PASS"

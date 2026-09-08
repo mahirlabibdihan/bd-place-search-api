@@ -1,5 +1,6 @@
 const searchIndexUpdateService = require("../services/searchIndexUpdateService");
 const updateAvailabilityService = require("../services/updateAvailabilityService");
+const indexStatsService = require("../services/indexStatsService");
 
 exports.availability = async (_req, res, next) => {
   try {
@@ -26,6 +27,14 @@ exports.create = async (req, res, next) => {
 exports.get = async (req, res, next) => {
   try {
     res.status(200).json(await searchIndexUpdateService.get(req.params.jobId));
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.stats = async (_req, res, next) => {
+  try {
+    res.status(200).json(await indexStatsService.getStats());
   } catch (error) {
     next(error);
   }

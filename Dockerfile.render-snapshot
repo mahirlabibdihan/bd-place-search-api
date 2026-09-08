@@ -20,6 +20,15 @@ ADD volumes/photon.tar /srv/photon/
 COPY volumes/db.env /app/.snapshot-db.env
 
 WORKDIR /app
+
+# A snapshot captured before this grant existed won't have it — (re-)apply it here so
+# GET /api/admin/update/stats works regardless of when volumes/*.tar was captured. GRANT is
+# idempotent, so this is a no-op against a snapshot that already has it.
+COPY scripts/grant-placex-access.sh ./scripts/grant-placex-access.sh
+RUN chmod +x scripts/grant-placex-access.sh \
+ && service postgresql start \
+ && bash scripts/grant-placex-access.sh /app/.snapshot-db.env \
+ && service postgresql stop
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY config ./config

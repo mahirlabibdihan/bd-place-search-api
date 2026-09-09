@@ -148,12 +148,12 @@ openssl rand -hex 32
 
 ### Values you must change
 
-| Variable | What to set |
-| --- | --- |
-| `SEARCH_INDEX_ADMIN_TOKEN` | A long random token used to authorize update APIs. |
-| `DB_PASS` | Password for the read-only `DB_USER` used by the API and worker. |
-| `NOMINATIM_DB_PASS` | Password for the Nominatim database owner. |
-| `PHOTON_DB_PASS` | Password for the Photon import/update database user. |
+| Variable                   | What to set                                                      |
+| -------------------------- | ---------------------------------------------------------------- |
+| `SEARCH_INDEX_ADMIN_TOKEN` | A long random token used to authorize update APIs.               |
+| `DB_PASS`                  | Password for the read-only `DB_USER` used by the API and worker. |
+| `NOMINATIM_DB_PASS`        | Password for the Nominatim database owner.                       |
+| `PHOTON_DB_PASS`           | Password for the Photon import/update database user.             |
 
 Using a different generated value for each password is recommended. The setup
 script creates the roles and generates their required `.pgpass` files.
@@ -250,14 +250,14 @@ bound to localhost unless a private network and access controls are configured.
 
 ## Scripts
 
-| Command | Purpose |
-| --- | --- |
-| `sudo bash scripts/setup-all.sh` | Install the complete search engine and backend. |
-| `sudo bash scripts/setup-backend.sh` | Install Node.js 22, Redis, and npm packages only. |
-| `sudo bash scripts/setup-search-engine.sh` | Install/import Nominatim and Photon only. |
-| `bash scripts/run-stack.sh` | Run Photon, API, and worker together. |
-| `bash scripts/run-photon.sh` | Run Photon only. |
-| `sudo bash scripts/reset-all.sh` | Remove the WSL installation while preserving the repository and `.env`. |
+| Command                                    | Purpose                                                                 |
+| ------------------------------------------ | ----------------------------------------------------------------------- |
+| `sudo bash scripts/setup-all.sh`           | Install the complete search engine and backend.                         |
+| `sudo bash scripts/setup-backend.sh`       | Install Node.js 22, Redis, and npm packages only.                       |
+| `sudo bash scripts/setup-search-engine.sh` | Install/import Nominatim and Photon only.                               |
+| `bash scripts/run-stack.sh`                | Run Photon, API, and worker together.                                   |
+| `bash scripts/run-photon.sh`               | Run Photon only.                                                        |
+| `sudo bash scripts/reset-all.sh`           | Remove the WSL installation while preserving the repository and `.env`. |
 
 The reset script prints the active WSL distribution and requires an explicit
 confirmation phrase. It permanently deletes PostgreSQL, Nominatim, Photon, and

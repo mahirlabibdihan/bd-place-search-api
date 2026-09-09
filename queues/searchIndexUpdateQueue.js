@@ -23,4 +23,3 @@ const resetQueue = async () => {
 };
 
 module.exports = { QUEUE_NAME, getQueue, resetQueue };
-

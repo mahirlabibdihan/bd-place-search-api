@@ -40,33 +40,38 @@ const withRedis = async (operation) => {
   return operation(queue);
 };
 
-exports.enqueue = async (idempotencyKey) => withRedis(async (queue) => {
-  const key = idempotencyKey || randomBytes(16).toString("hex");
-  const jobId = `update-${createHash("sha256").update(key).digest("hex")}`;
-  let job = await queue.getJob(jobId);
-  if (!job) {
-    job = await queue.add("update", {}, {
-      jobId,
-      attempts: 1,
-      removeOnComplete: { age: 604800, count: 100 },
-      removeOnFail: { age: 2592000, count: 100 },
-    });
-  }
-  return serialize(job);
-});
+exports.enqueue = async (idempotencyKey) =>
+  withRedis(async (queue) => {
+    const key = idempotencyKey || randomBytes(16).toString("hex");
+    const jobId = `update-${createHash("sha256").update(key).digest("hex")}`;
+    let job = await queue.getJob(jobId);
+    if (!job) {
+      job = await queue.add(
+        "update",
+        {},
+        {
+          jobId,
+          attempts: 1,
+          removeOnComplete: { age: 604800, count: 100 },
+          removeOnFail: { age: 2592000, count: 100 },
+        },
+      );
+    }
+    return serialize(job);
+  });
 
-exports.get = async (jobId) => withRedis(async (queue) => {
-  const job = await queue.getJob(jobId);
-  if (!job) throw serviceError("Search-index update job not found", 404);
-  return serialize(job);
-});
+exports.get = async (jobId) =>
+  withRedis(async (queue) => {
+    const job = await queue.getJob(jobId);
+    if (!job) throw serviceError("Search-index update job not found", 404);
+    return serialize(job);
+  });
 
 exports.isAvailable = async () => {
   if (!SEARCH_INDEX_UPDATE_ENABLED) return false;
   try {
-    return await withRedis(async (queue) => (await queue.client).ping()) === "PONG";
+    return (await withRedis(async (queue) => (await queue.client).ping())) === "PONG";
   } catch (_error) {
     return false;
   }
 };
-

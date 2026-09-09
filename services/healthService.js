@@ -13,14 +13,10 @@ const photonAvailable = async () => {
 };
 
 exports.readiness = async () => {
-  const [photon, updates] = await Promise.all([
-    photonAvailable(),
-    searchIndexUpdateService.isAvailable(),
-  ]);
+  const [photon, updates] = await Promise.all([photonAvailable(), searchIndexUpdateService.isAvailable()]);
   return {
     status: photon ? "ok" : "degraded",
     dependencies: { photon: photon ? "up" : "down" },
     features: { searchIndexUpdates: updates ? "enabled" : "disabled" },
   };
 };
-

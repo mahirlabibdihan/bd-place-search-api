@@ -38,7 +38,9 @@ exports.getStats = async () => {
       totalPlaces: stats.total_places,
       roads: stats.roads,
       administrativeAreas: stats.administrative_areas,
-      lastImportDate: stats.last_import_date ? new Date(stats.last_import_date).toISOString() : null,
+      lastImportDate: stats.last_import_date
+        ? new Date(stats.last_import_date).toISOString()
+        : null,
       checkedAt: new Date().toISOString(),
     };
   } catch (cause) {

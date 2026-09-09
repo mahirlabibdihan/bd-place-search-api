@@ -78,32 +78,36 @@ const smokeTest = async (query, lang) => {
   }
 };
 
-const worker = new Worker(QUEUE_NAME, async (job) => {
-  const sequenceBefore = await getNominatimSequence();
-  await job.updateProgress({ state: "updating_nominatim", sequenceBefore: String(sequenceBefore) });
-  await runNominatimUpdate();
-  const sequenceAfter = await getNominatimSequence();
+const worker = new Worker(
+  QUEUE_NAME,
+  async (job) => {
+    const sequenceBefore = await getNominatimSequence();
+    await job.updateProgress({ state: "updating_nominatim", sequenceBefore: String(sequenceBefore) });
+    await runNominatimUpdate();
+    const sequenceAfter = await getNominatimSequence();
 
-  if (!hasNewSequence(sequenceBefore, sequenceAfter)) {
-    const result = { outcome: "no_changes", sequence: String(sequenceAfter) };
+    if (!hasNewSequence(sequenceBefore, sequenceAfter)) {
+      const result = { outcome: "no_changes", sequence: String(sequenceAfter) };
+      await job.updateProgress({ state: "succeeded", ...result });
+      return result;
+    }
+
+    await job.updateProgress({
+      state: "updating_photon",
+      sequenceBefore: String(sequenceBefore),
+      sequenceAfter: String(sequenceAfter),
+    });
+    await requestPhotonUpdate();
+    await waitForPhotonUpdate();
+    await job.updateProgress({ state: "verifying" });
+    await smokeTest("Dhaka", "en");
+    await smokeTest("\u09a2\u09be\u0995\u09be", "bn");
+    const result = { outcome: "updated", sequence: String(sequenceAfter) };
     await job.updateProgress({ state: "succeeded", ...result });
     return result;
-  }
-
-  await job.updateProgress({
-    state: "updating_photon",
-    sequenceBefore: String(sequenceBefore),
-    sequenceAfter: String(sequenceAfter),
-  });
-  await requestPhotonUpdate();
-  await waitForPhotonUpdate();
-  await job.updateProgress({ state: "verifying" });
-  await smokeTest("Dhaka", "en");
-  await smokeTest("\u09a2\u09be\u0995\u09be", "bn");
-  const result = { outcome: "updated", sequence: String(sequenceAfter) };
-  await job.updateProgress({ state: "succeeded", ...result });
-  return result;
-}, { connection, concurrency: 1 });
+  },
+  { connection, concurrency: 1 },
+);
 
 worker.on("completed", (job, result) => {
   console.log(`Search-index update ${job.id} completed (${result.outcome})`);
@@ -112,4 +116,3 @@ worker.on("failed", (job, error) => console.error(`Search-index update ${job?.id
 console.log("Search-index update worker started");
 
 module.exports = { getNominatimSequence, requestPhotonUpdate, waitForPhotonUpdate };
-

@@ -67,10 +67,7 @@ const getRemoteState = async () => {
 
 exports.check = async () => {
   try {
-    const [localImportDate, remoteState] = await Promise.all([
-      getLocalImportDate(),
-      getRemoteState(),
-    ]);
+    const [localImportDate, remoteState] = await Promise.all([getLocalImportDate(), getRemoteState()]);
     return {
       updateAvailable: remoteState.timestamp > localImportDate,
       localImportDate: localImportDate.toISOString(),
@@ -87,4 +84,3 @@ exports.check = async () => {
 };
 
 exports.parseGeofabrikState = parseGeofabrikState;
-

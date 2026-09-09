@@ -22,9 +22,7 @@ describe("API", () => {
   });
 
   test("allows the configured frontend origin", async () => {
-    const response = await request(app)
-      .options("/api/search")
-      .set("Origin", "http://127.0.0.1:5173");
+    const response = await request(app).options("/api/search").set("Origin", "http://127.0.0.1:5173");
     expect(response.status).toBe(204);
     expect(response.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:5173");
   });
@@ -102,4 +100,3 @@ describe("API", () => {
     expect(response.status).toBe(404);
   });
 });
-

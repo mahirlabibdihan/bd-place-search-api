@@ -38,4 +38,3 @@ describe("searchIndexUpdateService Redis availability", () => {
     await expect(service.isAvailable()).resolves.toBe(true);
   });
 });
-

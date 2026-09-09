@@ -9,4 +9,3 @@ const parseSequence = (value) => {
 const hasNewSequence = (before, after) => parseSequence(after) > parseSequence(before);
 
 module.exports = { hasNewSequence, parseSequence };
-

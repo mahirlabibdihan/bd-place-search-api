@@ -3,11 +3,12 @@ const parsePhotonStatus = (body) => {
   if (!text) return "UNKNOWN";
   try {
     const parsed = JSON.parse(text);
-    return String(parsed.status ?? parsed).trim().toUpperCase();
+    return String(parsed.status ?? parsed)
+      .trim()
+      .toUpperCase();
   } catch (_error) {
     return text.toUpperCase();
   }
 };
 
 module.exports = { parsePhotonStatus };
-

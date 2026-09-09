@@ -51,4 +51,3 @@ const readPassword = async (file, connection) => {
 };
 
 module.exports = { readPassword, splitLine };
-

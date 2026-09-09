@@ -23,17 +23,22 @@ pool.on("error", (error) => {
 // class='boundary' + type='administrative' covers admin areas (districts, upazilas, etc.).
 exports.getStats = async () => {
   try {
-    const [places, roads, administrativeAreas, importStatus] = await Promise.all([
-      pool.query("SELECT count(*)::int AS count FROM placex"),
-      pool.query("SELECT count(*)::int AS count FROM placex WHERE class = 'highway'"),
-      pool.query("SELECT count(*)::int AS count FROM placex WHERE class = 'boundary' AND type = 'administrative'"),
-      pool.query("SELECT lastimportdate FROM import_status LIMIT 1"),
-    ]);
+    const result = await pool.query(`
+      SELECT
+        count(*)::int AS total_places,
+        count(*) FILTER (WHERE class = 'highway')::int AS roads,
+        count(*) FILTER (
+          WHERE class = 'boundary' AND type = 'administrative'
+        )::int AS administrative_areas,
+        (SELECT lastimportdate FROM import_status LIMIT 1) AS last_import_date
+      FROM placex
+    `);
+    const stats = result.rows[0];
     return {
-      totalPlaces: places.rows[0].count,
-      roads: roads.rows[0].count,
-      administrativeAreas: administrativeAreas.rows[0].count,
-      lastImportDate: importStatus.rows[0]?.lastimportdate ? new Date(importStatus.rows[0].lastimportdate).toISOString() : null,
+      totalPlaces: stats.total_places,
+      roads: stats.roads,
+      administrativeAreas: stats.administrative_areas,
+      lastImportDate: stats.last_import_date ? new Date(stats.last_import_date).toISOString() : null,
       checkedAt: new Date().toISOString(),
     };
   } catch (cause) {

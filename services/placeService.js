@@ -26,18 +26,27 @@ class PlaceService {
     if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
       throw clientError("limit must be a positive integer");
     }
+    // What every caller here actually wants is a deliverable address -- something with a postcode
+    // -- not a city/village/admin area, and not a road, land-use parcel, or natural feature either
+    // (all of which can match a query by name but aren't a single deliverable location). The
+    // postcode requirement is enforced below, after the fetch, since Photon has no "field exists"
+    // filter -- so we over-fetch here (capped at PLACE_SEARCH_MAX_LIMIT) to still have enough left
+    // after that filter to fill the caller's actual requested limit.
+    const fetchLimit = Math.min(requestedLimit * 4, PLACE_SEARCH_MAX_LIMIT);
 
     const url = new URL("/api", PHOTON_BASE_URL);
     url.searchParams.set("q", query);
     if (lang) url.searchParams.set("lang", lang.toLowerCase());
-    url.searchParams.set("limit", String(Math.min(requestedLimit, PLACE_SEARCH_MAX_LIMIT)));
+    url.searchParams.set("limit", String(fetchLimit));
     url.searchParams.set("bbox", "88.0,20.5,92.8,26.7");
-    // Every caller of this search wants a specific building/venue to point at, not an entire city,
-    // village, or administrative area -- Photon's osm_tag filter (repeatable, ANDed together for
-    // exclusions) applies this at query time, so `limit` still caps the actually-useful result
-    // count instead of being spent on results we'd have discarded client-side afterwards.
+    // Photon's osm_tag filter (repeatable, ANDed together for exclusions) applies this at query
+    // time, cheaper than fetching them just to discard them in the postcode filter below.
     url.searchParams.append("osm_tag", "!place");
     url.searchParams.append("osm_tag", "!boundary");
+    url.searchParams.append("osm_tag", "!highway");
+    url.searchParams.append("osm_tag", "!landuse");
+    url.searchParams.append("osm_tag", "!natural");
+    url.searchParams.append("osm_tag", "!waterway");
 
     if ((lat === undefined) !== (lon === undefined)) {
       throw clientError("lat and lon must be provided together");
@@ -76,10 +85,12 @@ class PlaceService {
     }
 
     const body = await response.json();
-    return {
-      type: "FeatureCollection",
-      features: (body.features || []).filter((feature) => feature.properties?.countrycode?.toLowerCase() === "bd"),
-    };
+    const features = (body.features || [])
+      .filter(
+        (feature) => feature.properties?.countrycode?.toLowerCase() === "bd" && Boolean(feature.properties?.postcode),
+      )
+      .slice(0, requestedLimit);
+    return { type: "FeatureCollection", features };
   };
 
   suggest = async ({ q, lang = "en", limit }) => {

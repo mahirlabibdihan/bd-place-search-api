@@ -104,7 +104,9 @@ class PlaceService {
       // The raw OSM tag value (e.g. "city", "village", "administrative", "college") -- this is
       // what Photon's own demo (photon.komoot.io) shows as each result's type badge, not the
       // coarser osm_key/type facet (which collapses both a city and a village down to "city").
-      osmValue: feature.properties.osm_value,
+      // Falls back to the tag's key (e.g. "building") when the value is just "yes" -- a common
+      // OSM boolean-style tagging (building=yes, pump=yes) that carries no descriptive value.
+      osmValue: feature.properties.osm_value === "yes" ? feature.properties.osm_key : feature.properties.osm_value,
       name: feature.properties.name,
       street: feature.properties.street,
       locality: feature.properties.locality,

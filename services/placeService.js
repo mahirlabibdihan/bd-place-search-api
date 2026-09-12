@@ -47,6 +47,9 @@ class PlaceService {
     url.searchParams.append("osm_tag", "!landuse");
     url.searchParams.append("osm_tag", "!natural");
     url.searchParams.append("osm_tag", "!waterway");
+    // Some water bodies (e.g. ponds) are tagged with "water" as their own top-level key
+    // (water=pond/lake/reservoir) instead of natural=water, so !natural alone misses them.
+    url.searchParams.append("osm_tag", "!water");
 
     if ((lat === undefined) !== (lon === undefined)) {
       throw clientError("lat and lon must be provided together");

@@ -32,6 +32,12 @@ class PlaceService {
     if (lang) url.searchParams.set("lang", lang.toLowerCase());
     url.searchParams.set("limit", String(Math.min(requestedLimit, PLACE_SEARCH_MAX_LIMIT)));
     url.searchParams.set("bbox", "88.0,20.5,92.8,26.7");
+    // Every caller of this search wants a specific building/venue to point at, not an entire city,
+    // village, or administrative area -- Photon's osm_tag filter (repeatable, ANDed together for
+    // exclusions) applies this at query time, so `limit` still caps the actually-useful result
+    // count instead of being spent on results we'd have discarded client-side afterwards.
+    url.searchParams.append("osm_tag", "!place");
+    url.searchParams.append("osm_tag", "!boundary");
 
     if ((lat === undefined) !== (lon === undefined)) {
       throw clientError("lat and lon must be provided together");
@@ -81,6 +87,10 @@ class PlaceService {
     return body.features.map((feature) => ({
       osmType: feature.properties.osm_type,
       osmId: feature.properties.osm_id,
+      // The raw OSM tag value (e.g. "city", "village", "administrative", "college") -- this is
+      // what Photon's own demo (photon.komoot.io) shows as each result's type badge, not the
+      // coarser osm_key/type facet (which collapses both a city and a village down to "city").
+      osmValue: feature.properties.osm_value,
       name: feature.properties.name,
       street: feature.properties.street,
       locality: feature.properties.locality,

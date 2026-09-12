@@ -21,7 +21,13 @@ HEALTH_URL="http://127.0.0.1:${PORT}/api/health"
 UPDATE_URL="http://127.0.0.1:${PORT}/api/admin/update"
 deadline=$(( $(date +%s) + WAIT_SECONDS ))
 
-until curl --fail --silent "$HEALTH_URL" >/dev/null 2>&1; do
+startup_ready() {
+  curl --fail --silent --connect-timeout 2 --max-time 5 "$HEALTH_URL" \
+    | jq -e '.status == "ok" and .features.searchIndexUpdates == "enabled"' >/dev/null
+}
+
+echo "Waiting for the search API and update queue to become ready..."
+until startup_ready 2>/dev/null; do
   if (( $(date +%s) >= deadline )); then
     echo "Startup update skipped: services were not ready within ${WAIT_SECONDS}s." >&2
     exit 0

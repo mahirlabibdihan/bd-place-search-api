@@ -79,6 +79,30 @@ docker compose down
 Named volumes preserve the Nominatim database and Photon index. Running
 `docker compose down -v` permanently removes that imported data.
 
+### Access from other PCs on the same Wi-Fi
+
+With the container running on host port `5001`, run this from Windows PowerShell
+in the backend directory:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\enable-lan-access.ps1
+```
+
+Approve the administrator prompt. The script detects your physical LAN adapter,
+forwards its IPv4 address on port `5001` to `127.0.0.1:5001`, and allows inbound
+traffic from the local subnet. Open the printed URL on another PC on the same
+network. This does not start the container or publish an image.
+
+For another host port or when multiple network adapters are connected:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\enable-lan-access.ps1 -Port 5001 -InterfaceAlias "Wi-Fi 3"
+```
+
+Forwarding persists across restarts. Rerun after your LAN IP changes; the script
+replaces its previous IP binding and firewall rule. Add `-WhatIf` to preview the
+configuration without applying it.
+
 ### Render (free tier)
 
 The Render image is self-contained and does not need a persistent disk. Its
@@ -91,7 +115,10 @@ data during `docker build`.
 4. Set the health-check path to `/api/health` and deploy. Render supplies `PORT` automatically.
 
 The first image build is large and slow. After every Render start, a one-shot task
-waits for the stack to become healthy and calls the conditional update API. It applies
+waits for `/api/health` to report healthy search and an available Redis update
+queue, then calls the conditional update API. Each health request has a five-second
+timeout; the overall wait defaults to `SEARCH_INDEX_STARTUP_WAIT_SECONDS=900`.
+This check does not verify the replication database credentials. It applies
 newer Geofabrik diffs when available and otherwise does nothing. Set
 `SEARCH_INDEX_UPDATE_ON_START=false` to disable it.
 
@@ -157,6 +184,18 @@ openssl rand -hex 32
 
 Using a different generated value for each password is recommended. The setup
 script creates the roles and generates their required `.pgpass` files.
+
+Replication uses `NOMINATIM_PGPASSFILE`, defaulting to
+`$NOMINATIM_HOME/.pgpass` (`/srv/nominatim/.pgpass`). The worker explicitly passes
+this file to the Nominatim subprocess, including when Supervisor runs the worker
+as root in Docker. Read-only APIs use the separate `DB_PASS` / `DB_PGPASSFILE`
+credentials, so they can work even when replication authentication fails.
+
+If an update fails with `fe_sendauth: no password supplied`, deploy the updated
+worker and restart it (rebuild/redeploy the image for Docker or Render). Ensure
+the Nominatim password file exists, is readable by the worker user, has mode
+`0600`, and contains a matching host, port, database, and Nominatim database role.
+Do not point replication at the read-only `/srv/place-search/.pgpass` file.
 
 ### Database settings
 

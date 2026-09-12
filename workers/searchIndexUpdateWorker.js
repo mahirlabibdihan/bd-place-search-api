@@ -6,6 +6,7 @@ const { connection } = require("../config/redis");
 const {
   NOMINATIM_BIN,
   NOMINATIM_PROJECT_DIR,
+  NOMINATIM_PGPASSFILE,
   PHOTON_UPDATE_URL,
   PHOTON_UPDATE_STATUS_URL,
   PHOTON_REQUEST_TIMEOUT_MS,
@@ -38,6 +39,7 @@ const getNominatimSequence = async () => {
 const runNominatimUpdate = async () => {
   await execFileAsync(NOMINATIM_BIN, ["replication", "--catch-up"], {
     cwd: NOMINATIM_PROJECT_DIR,
+    env: { ...process.env, PGPASSFILE: NOMINATIM_PGPASSFILE },
     timeout: SEARCH_INDEX_UPDATE_TIMEOUT_SECONDS * 1000,
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -112,4 +114,3 @@ worker.on("failed", (job, error) => console.error(`Search-index update ${job?.id
 console.log("Search-index update worker started");
 
 module.exports = { getNominatimSequence, requestPhotonUpdate, waitForPhotonUpdate };
-

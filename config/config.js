@@ -37,6 +37,8 @@ module.exports = {
   SEARCH_INDEX_UPDATE_TIMEOUT_SECONDS: numberFromEnv("SEARCH_INDEX_UPDATE_TIMEOUT_SECONDS", 7200),
   NOMINATIM_PROJECT_DIR: process.env.NOMINATIM_PROJECT_DIR || "/srv/nominatim/project",
   NOMINATIM_BIN: process.env.NOMINATIM_BIN || "/srv/nominatim/venv/bin/nominatim",
+  NOMINATIM_PGPASSFILE: process.env.NOMINATIM_PGPASSFILE
+    || `${process.env.NOMINATIM_HOME || "/srv/nominatim"}/.pgpass`,
   DB_USER: process.env.DB_USER || "place_search_status",
   DB_HOST: process.env.DB_HOST || "127.0.0.1",
   DB_PASS: process.env.DB_PASS || "",

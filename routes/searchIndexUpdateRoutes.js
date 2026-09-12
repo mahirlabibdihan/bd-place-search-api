@@ -9,4 +9,3 @@ router.post("/", controller.create);
 router.get("/:jobId", controller.get);
 
 module.exports = router;
-

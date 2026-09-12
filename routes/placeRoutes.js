@@ -4,4 +4,3 @@ const placeController = require("../controllers/placeController");
 router.get("/search", placeController.search);
 
 module.exports = router;
-

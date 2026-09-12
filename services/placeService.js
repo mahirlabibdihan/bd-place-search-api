@@ -72,30 +72,26 @@ class PlaceService {
     const body = await response.json();
     return {
       type: "FeatureCollection",
-      features: (body.features || []).filter(
-        (feature) => feature.properties?.countrycode?.toLowerCase() === "bd"
-      ),
+      features: (body.features || []).filter((feature) => feature.properties?.countrycode?.toLowerCase() === "bd"),
     };
   };
 
   suggest = async ({ q, lang = "en", limit }) => {
     const body = await this.searchGeoJson({ q, lang, limit });
-    return body.features
-      .map((feature) => ({
-        osmType: feature.properties.osm_type,
-        osmId: feature.properties.osm_id,
-        name: feature.properties.name,
-        street: feature.properties.street,
-        locality: feature.properties.locality,
-        district: feature.properties.district,
-        city: feature.properties.city,
-        state: feature.properties.state,
-        postcode: feature.properties.postcode,
-        country: feature.properties.country,
-        coordinates: feature.geometry?.coordinates,
-      }));
+    return body.features.map((feature) => ({
+      osmType: feature.properties.osm_type,
+      osmId: feature.properties.osm_id,
+      name: feature.properties.name,
+      street: feature.properties.street,
+      locality: feature.properties.locality,
+      district: feature.properties.district,
+      city: feature.properties.city,
+      state: feature.properties.state,
+      postcode: feature.properties.postcode,
+      country: feature.properties.country,
+      coordinates: feature.geometry?.coordinates,
+    }));
   };
 }
 
 module.exports = new PlaceService();
-

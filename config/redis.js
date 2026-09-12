@@ -7,13 +7,13 @@ const connection = new Redis(REDIS_URL, {
   retryStrategy: (times) => Math.min(times * 250, 5000),
 });
 
-const createProducerConnection = () => new Redis(REDIS_URL, {
-  lazyConnect: true,
-  connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
-  enableOfflineQueue: false,
-  maxRetriesPerRequest: 1,
-  retryStrategy: () => null,
-});
+const createProducerConnection = () =>
+  new Redis(REDIS_URL, {
+    lazyConnect: true,
+    connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null,
+  });
 
 module.exports = { connection, createProducerConnection };
-

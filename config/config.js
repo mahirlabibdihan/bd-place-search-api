@@ -6,22 +6,16 @@ const numberFromEnv = (name, fallback) => {
 };
 
 const withoutTrailingSlash = (value) => value.replace(/\/+$/, "");
-const PHOTON_BASE_URL = withoutTrailingSlash(
-  process.env.PHOTON_BASE_URL || "http://127.0.0.1:2322",
-);
+const PHOTON_BASE_URL = withoutTrailingSlash(process.env.PHOTON_BASE_URL || "http://127.0.0.1:2322");
 const NOMINATIM_REPLICATION_URL = withoutTrailingSlash(
-  process.env.NOMINATIM_REPLICATION_URL
-    || "https://download.geofabrik.de/asia/bangladesh-updates",
+  process.env.NOMINATIM_REPLICATION_URL || "https://download.geofabrik.de/asia/bangladesh-updates",
 );
 
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
   HOST: process.env.HOST || "127.0.0.1",
   PORT: numberFromEnv("PORT", 5001),
-  CORS_ALLOWED_ORIGINS: (
-    process.env.CORS_ALLOWED_ORIGINS
-      || "http://127.0.0.1:5173,http://localhost:5173"
-  )
+  CORS_ALLOWED_ORIGINS: (process.env.CORS_ALLOWED_ORIGINS || "http://127.0.0.1:5173,http://localhost:5173")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),

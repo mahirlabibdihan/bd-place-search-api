@@ -22,4 +22,3 @@ class PlaceController extends Controller {
 }
 
 module.exports = new PlaceController();
-

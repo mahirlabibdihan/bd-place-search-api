@@ -12,12 +12,6 @@ describe("pgpass parsing", () => {
   });
 
   test("supports escaped colons and backslashes", () => {
-    expect(splitLine("host:5432:db:user:pass\\:word\\\\end")).toEqual([
-      "host",
-      "5432",
-      "db",
-      "user",
-      "pass:word\\end",
-    ]);
+    expect(splitLine("host:5432:db:user:pass\\:word\\\\end")).toEqual(["host", "5432", "db", "user", "pass:word\\end"]);
   });
 });

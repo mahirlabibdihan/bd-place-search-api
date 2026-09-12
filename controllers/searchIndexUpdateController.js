@@ -23,7 +23,6 @@ exports.create = async (req, res, next) => {
   }
 };
 
-
 exports.get = async (req, res, next) => {
   try {
     res.status(200).json(await searchIndexUpdateService.get(req.params.jobId));
@@ -39,4 +38,3 @@ exports.stats = async (_req, res, next) => {
     next(error);
   }
 };
-

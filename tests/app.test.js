@@ -43,12 +43,17 @@ describe("API", () => {
           {
             type: "Feature",
             geometry: { type: "Point", coordinates: [90.4125, 23.8103] },
-            properties: { name: "Dhaka", countrycode: "BD", osm_type: "R", osm_id: 1 },
+            properties: { name: "Dhaka", countrycode: "BD", postcode: "1205", osm_type: "R", osm_id: 1 },
           },
           {
             type: "Feature",
             geometry: { type: "Point", coordinates: [13.405, 52.52] },
-            properties: { name: "Berlin", countrycode: "DE", osm_type: "R", osm_id: 2 },
+            properties: { name: "Berlin", countrycode: "DE", postcode: "10115", osm_type: "R", osm_id: 2 },
+          },
+          {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [90.4125, 23.8103] },
+            properties: { name: "No postcode", countrycode: "BD", osm_type: "N", osm_id: 3 },
           },
         ],
       }),
@@ -64,7 +69,16 @@ describe("API", () => {
       const upstreamUrl = new URL(global.fetch.mock.calls[0][0]);
       expect(upstreamUrl.searchParams.get("q")).toBe("dhaka");
       expect(upstreamUrl.searchParams.get("lang")).toBe("en");
-      expect(upstreamUrl.searchParams.get("limit")).toBe("3");
+      expect(upstreamUrl.searchParams.get("limit")).toBe("12");
+      expect(upstreamUrl.searchParams.getAll("osm_tag")).toEqual([
+        "!place",
+        "!boundary",
+        "!highway",
+        "!landuse",
+        "!natural",
+        "!waterway",
+        "!water",
+      ]);
       expect(upstreamUrl.searchParams.get("lat")).toBe("23.8");
       expect(upstreamUrl.searchParams.get("lon")).toBe("90.4");
     } finally {

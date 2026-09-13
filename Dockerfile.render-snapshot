@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,23 +15,25 @@ RUN apt-get update \
 RUN useradd --create-home --home-dir /srv/nominatim --shell /bin/bash nominatim \
  && useradd --system --create-home --home-dir /srv/photon --shell /usr/sbin/nologin photon
 
-ADD volumes/postgres.tar /var/lib/postgresql/
-ADD volumes/nominatim.tar /srv/nominatim/
-ADD volumes/photon.tar /srv/photon/
-COPY volumes/db.env /app/.snapshot-db.env
-
 WORKDIR /app
 
 # A snapshot captured before this grant existed won't have it — (re-)apply it here so
 # GET /api/admin/update/stats works regardless of when volumes/*.tar was captured. GRANT is
 # idempotent, so this is a no-op against a snapshot that already has it.
 COPY scripts/grant-placex-access.sh ./scripts/grant-placex-access.sh
-RUN chmod +x scripts/grant-placex-access.sh \
+RUN --mount=type=bind,source=volumes,target=/snapshot \
+    rm -rf /var/lib/postgresql/16/main \
+ && tar -xf /snapshot/postgres.tar -C /var/lib/postgresql \
+ && tar -xf /snapshot/nominatim.tar -C /srv/nominatim \
+ && tar -xf /snapshot/photon.tar -C /srv/photon \
+ && cp /snapshot/db.env /app/.snapshot-db.env \
+ && chmod 0600 /app/.snapshot-db.env \
+ && chmod +x scripts/grant-placex-access.sh \
  && service postgresql start \
  && bash scripts/grant-placex-access.sh /app/.snapshot-db.env \
  && service postgresql stop
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY config ./config
 COPY controllers ./controllers
 COPY middlewares ./middlewares

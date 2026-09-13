@@ -134,7 +134,8 @@ bash scripts/build-render-from-volumes.sh
 ```
 
 The first run briefly stops the local stack, saves its three volume archives in
-`volumes`, builds `bangladesh-place-search:render`, and restarts the stack.
+`volumes`, restarts the stack, and builds
+`mahirlabibdihan/bangladesh-place-search:latest`.
 Later runs reuse those archives, so backend-only changes do not rebuild the data
 layers. To capture the current volumes again, use:
 
@@ -163,6 +164,64 @@ docker push YOUR_DOCKERHUB_USERNAME/bangladesh-place-search:latest
 On Render, use **Clear build cache & deploy** when Render builds directly from the
 repository. If Render pulls a Docker Hub image, rebuild and push the image first,
 then trigger a new deployment.
+
+### Efficient backend updates and local Render testing
+
+Use the saved snapshot build for routine backend changes. Database/index archives
+are unpacked and prepared in one cached layer before npm dependencies and backend
+code. Changing backend code reuses that layer; changing `.env.example` also leaves
+it cached. Do not use `docker commit` for releases: modified database files would
+be added on top of the original data layers, increasing image size.
+
+For a Render-style container that already contains data, capture it once:
+
+```bash
+bash scripts/snapshot-render-container.sh CONTAINER_NAME
+```
+
+The script briefly stops that container, saves consistent archives in the ignored
+`volumes/` directory, and restarts it. It captures the database credentials needed
+by the snapshot, but not the API admin token. Keep these archives local.
+
+For local development, run the Render image through `compose.render-local.yaml`.
+The first start populates named volumes from the image. Subsequent container
+replacements reuse those volumes, preserving runtime data independently of code.
+Stop any old standalone container using host port 5001 before the first start.
+
+After pulling backend changes, build and replace the local service with:
+
+```bash
+bash scripts/update-render-local.sh
+```
+
+This reuses the saved snapshot, builds the single `:latest` tag, waits for the
+replacement service to become healthy, and removes the previous image if unused.
+The service reads the current local `.env`; snapshot database credentials remain
+authoritative. For configuration-only changes, no image build is needed:
+
+```bash
+docker compose -f compose.render-local.yaml up -d --wait
+```
+
+The local API stays at `http://localhost:5001`. Windows LAN forwarding continues
+to work. Do not use `down -v` unless you intend to delete the runtime data.
+
+Refresh the saved snapshot only when you want newer data in the Render image:
+
+```bash
+bash scripts/snapshot-render-container.sh
+bash scripts/update-render-local.sh
+```
+
+To publish the current build for Render:
+
+```bash
+docker push mahirlabibdihan/bangladesh-place-search:latest
+```
+
+Then redeploy Render. Its data remains ephemeral; named volumes in the local
+Compose configuration do not provide persistence on Render. Backend-only builds
+reuse snapshot layers while Docker's build cache is retained.
 
 ## Configure `.env`
 

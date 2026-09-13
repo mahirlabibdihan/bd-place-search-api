@@ -35,7 +35,7 @@ RUN chmod +x /app/scripts/setup-search-engine.sh \
  && rm -rf /root/.cache /tmp/*
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY . .
 RUN chmod +x docker/render-entrypoint.sh scripts/*.sh \
  && mkdir -p /var/log/place-search

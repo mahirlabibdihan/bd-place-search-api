@@ -1,0 +1,28 @@
+# Run the Render image locally, with runtime data preserved across code updates.
+name: bpo-render-local
+services:
+  place-search:
+    image: mahirlabibdihan/bangladesh-place-search:latest
+    container_name: bangladesh-place-search
+    env_file:
+      - .env
+    environment:
+      PORT: "10000"
+    ports:
+      - "127.0.0.1:${HOST_PORT:-5001}:10000"
+    restart: unless-stopped
+    stop_grace_period: 2m
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - nominatim-data:/srv/nominatim
+      - photon-data:/srv/photon
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:10000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+volumes:
+  postgres-data:
+  nominatim-data:
+  photon-data:

@@ -1,3 +1,5 @@
+# Preserve the existing Docker project and named volumes after folder renames.
+name: bpo-postcode-backend
 services:
   place-search:
     build: .

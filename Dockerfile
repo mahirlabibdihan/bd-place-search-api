@@ -7,7 +7,7 @@ RUN useradd --create-home --home-dir /srv/nominatim --shell /bin/bash nominatim 
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 COPY . .
 RUN chmod +x docker/entrypoint.sh scripts/*.sh && mkdir -p /var/log/place-search
 EXPOSE 5000

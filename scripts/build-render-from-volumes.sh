@@ -4,7 +4,7 @@ set -Eeuo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$REPO_DIR/.env"
 SNAPSHOT_DIR="$REPO_DIR/volumes"
-IMAGE_TAG=bangladesh-place-search:render
+IMAGE_TAG=mahirlabibdihan/bangladesh-place-search:latest
 SERVICE=place-search
 LATEST=false
 was_running=false
@@ -130,6 +130,11 @@ if [[ "$LATEST" == true || "$snapshot_complete" == false ]]; then
     mv -f -- "$SNAPSHOT_DIR/$file.new" "$SNAPSHOT_DIR/$file"
   done
   echo "Saved the reusable snapshot in $SNAPSHOT_DIR."
+  if [[ "$was_running" == true ]]; then
+    docker compose start "$SERVICE" >/dev/null
+    was_running=false
+    echo "Local stack restarted before building the image."
+  fi
 else
   echo "Reusing the saved data snapshot in $SNAPSHOT_DIR."
   echo "Use --latest when you want to capture the current volumes again."
